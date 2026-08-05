@@ -89,6 +89,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - `openai` Python SDK diarahkan ke `https://openrouter.ai/api/v1`.
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
+- `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari anchor tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
@@ -101,7 +102,7 @@ Function yang tersedia:
 - `right_click`
 - `press_move_key` untuk `w/a/s/d/q/e`
 - `press_action_key` untuk tombol terbatas seperti `f`, `space`, `0-9`, atau `shift`
-- `move_camera` untuk gerakan relatif dari titik tengah screenshot
+- `move_camera` untuk mengarahkan camera ke endpoint absolut di content game; cursor di-anchor ke titik tengah screenshot pada setiap aksi
 - `wait`
 
 Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native computer-use API. Tidak semua model gratis mendukung vision dan tools sekaligus. Jika model gagal, cek halaman model OpenRouter dan ganti `OPENROUTER_MODEL`.

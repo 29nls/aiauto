@@ -333,9 +333,12 @@ def execute_game_action(
     elif action == "move_camera":
         if coordinate is None:
             raise ValueError("move_camera membutuhkan coordinate.")
-        x, y = _physical_point(coordinate)
+        target_x, target_y = _physical_point(coordinate)
         center_x, center_y = _physical_point((TARGET_WIDTH // 2, TARGET_HEIGHT // 2))
-        pydirectinput.moveRel(x - center_x, y - center_y)
+        # Anchor every camera move at the screenshot center so the action does
+        # not depend on the cursor's previous position or accumulate drift.
+        pydirectinput.moveTo(center_x, center_y)
+        pydirectinput.moveTo(target_x, target_y)
     elif action == "wait":
         _safe_sleep(duration)
     else:
@@ -351,8 +354,9 @@ DRAGON_NEST_TOOL = {
         "description": (
             "Execute one cautious, allow-listed action in the focused Dragon Nest "
             "window. Coordinates refer to the 1024x768 screenshot. Click actions "
-            "must include the intended coordinate. Use only after inspecting the "
-            "latest screenshot."
+            "must include the intended coordinate. For move_camera, coordinate is "
+            "an absolute endpoint: the cursor is anchored at the screenshot center "
+            "before moving there. Use only after inspecting the latest screenshot."
         ),
         "parameters": {
             "type": "object",
@@ -371,6 +375,11 @@ DRAGON_NEST_TOOL = {
                 },
                 "coordinate": {
                     "type": "array",
+                    "description": (
+                        "Two integer coordinates [x, y] in the 1024x768 screenshot. "
+                        "For move_camera this is an absolute endpoint inside the "
+                        "visible game content, not a relative delta."
+                    ),
                     "items": {"type": "integer"},
                     "minItems": 2,
                     "maxItems": 2,
@@ -398,7 +407,7 @@ Aturan aksi:
 - `press_move_key` hanya untuk w/a/s/d/q/e.
 - `press_action_key` hanya untuk f, space, 0-9, atau shift.
 - `mouse_move` memakai coordinate absolut pada screenshot 1024x768.
-- `move_camera` memakai coordinate sebagai arah relatif dari titik tengah screenshot.
+- `move_camera` memakai coordinate sebagai endpoint absolut di dalam content game; cursor selalu di-anchor ke titik tengah screenshot terlebih dahulu sehingga gerakan tidak bergantung pada posisi cursor sebelumnya dan tidak mengalami drift.
 - `wait` dipakai untuk loading atau animasi.
 - Jangan membuat asumsi tentang NPC atau target yang tidak terlihat.
 """

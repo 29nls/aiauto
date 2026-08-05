@@ -18,6 +18,74 @@ def test_openrouter_client_uses_configured_openrouter_base_url():
     assert str(client.base_url).rstrip("/") == "https://openrouter.ai/api/v1"
 
 
+def test_move_camera_anchors_at_center_before_absolute_endpoint():
+    calls = []
+    with patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn.pydirectinput, "position", return_value=(900, 700)
+    ), patch.object(app_dn.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)), patch.object(
+        app_dn.pydirectinput, "moveRel"
+    ) as move_rel, patch.object(app_dn, "_safe_sleep"), patch.object(
+        app_dn, "check_emergency_stop"
+    ), patch.object(
+        app_dn,
+        "_capture_region",
+        {"left": 0, "top": 0, "width": 1024, "height": 768},
+    ), patch.object(app_dn, "_capture_geometry", None):
+        app_dn.execute_game_action("move_camera", coordinate=[800, 600])
+
+    assert calls == [(512, 384), (800, 600)]
+    move_rel.assert_not_called()
+
+
+def test_repeated_move_camera_calls_reanchor_before_each_endpoint():
+    calls = []
+    with patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn.pydirectinput, "position", return_value=(12, 700)
+    ), patch.object(app_dn.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)), patch.object(
+        app_dn, "_safe_sleep"
+    ), patch.object(app_dn, "check_emergency_stop"), patch.object(
+        app_dn,
+        "_capture_region",
+        {"left": 0, "top": 0, "width": 1024, "height": 768},
+    ), patch.object(app_dn, "_capture_geometry", None):
+        app_dn.execute_game_action("move_camera", coordinate=[800, 600])
+        app_dn.execute_game_action("move_camera", coordinate=[200, 300])
+
+    assert calls == [(512, 384), (800, 600), (512, 384), (200, 300)]
+
+
+def test_move_camera_rejects_padding_before_moving_cursor():
+    with patch.object(
+        app_dn,
+        "_capture_region",
+        {"left": 0, "top": 0, "width": 1920, "height": 1080},
+    ), patch.object(app_dn, "_capture_geometry", None), patch.object(
+        app_dn, "check_target_window"
+    ), patch.object(app_dn, "check_emergency_stop"), patch.object(
+        app_dn.pydirectinput, "moveTo"
+    ) as move_to, patch.object(app_dn, "_safe_sleep"):
+        try:
+            app_dn.execute_game_action("move_camera", coordinate=[512, 95])
+        except ValueError as error:
+            assert "padding" in str(error)
+        else:
+            raise AssertionError("move_camera must reject letterbox padding")
+
+    move_to.assert_not_called()
+
+
+def test_move_camera_rejects_missing_coordinate():
+    with patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn, "check_emergency_stop"
+    ):
+        try:
+            app_dn.execute_game_action("move_camera")
+        except ValueError as error:
+            assert "coordinate" in str(error)
+        else:
+            raise AssertionError("move_camera requires an endpoint")
+
+
 def test_execute_game_action_rejects_invalid_duration():
     with patch.object(app_dn, "check_target_window"), patch.object(
         app_dn.pydirectinput, "position", return_value=(100, 100)

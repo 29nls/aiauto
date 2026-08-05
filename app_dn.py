@@ -40,6 +40,7 @@ pydirectinput.PAUSE = 0.03
 TARGET_WIDTH = 1024
 TARGET_HEIGHT = 768
 MAX_STEPS_PER_SESSION = 10
+MAX_CONTEXT_MESSAGES = 8
 ACTION_COOLDOWN = 0.15
 MOVE_DURATION = 0.3
 START_DELAY_SECONDS = 5
@@ -431,6 +432,45 @@ def extract_tool_requests(message: Any) -> list[dict[str, Any]]:
     return requests
 
 
+def _compact_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bound history while preserving valid assistant/tool groups and latest frame."""
+    if not messages:
+        return messages
+
+    instruction = messages[0]
+    current_frame = messages[-1]
+    history = messages[1:-1]
+    turns: list[list[dict[str, Any]]] = []
+    index = 0
+    while index < len(history):
+        message = history[index]
+        if message.get("role") != "assistant" or not message.get("tool_calls"):
+            index += 1
+            continue
+
+        end = index + 1
+        while end < len(history) and history[end].get("role") == "tool":
+            end += 1
+        turns.append(history[index:end])
+        index = end
+
+    budget = MAX_CONTEXT_MESSAGES - 2
+    selected: list[list[dict[str, Any]]] = []
+    for turn in reversed(turns):
+        if len(turn) > budget:
+            # Do not fall back to older context when the newest complete turn
+            # cannot fit; stale action history is less useful than no history.
+            break
+        selected.insert(0, turn)
+        budget -= len(turn)
+
+    compacted = [instruction]
+    for turn in selected:
+        compacted.extend(turn)
+    compacted.append(current_frame)
+    return compacted[-MAX_CONTEXT_MESSAGES:]
+
+
 def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None:
     """Run a bounded screenshot -> OpenRouter -> validated action loop."""
     if not isinstance(instruction, str) or not instruction.strip():
@@ -453,18 +493,20 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
 
     client = get_openrouter_client()
     messages: list[dict[str, Any]] = [
+        {"role": "user", "content": instruction},
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": instruction},
+                {"type": "text", "text": "Current screenshot."},
                 _image_block(capture_screen_base64()),
             ],
-        }
+        },
     ]
 
     for step in range(1, max_steps + 1):
         check_emergency_stop()
         log.info("Langkah %s/%s", step, max_steps)
+        messages = _compact_messages(messages)
 
         try:
             response = client.chat.completions.create(
@@ -542,11 +584,12 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Screenshot terbaru setelah aksi."},
+                    {"type": "text", "text": "Current screenshot after the action."},
                     _image_block(capture_screen_base64()),
                 ],
             }
         )
+        messages = _compact_messages(messages)
 
     log.warning("Sesi berhenti karena mencapai batas langkah.")
 

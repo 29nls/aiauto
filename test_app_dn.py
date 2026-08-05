@@ -1,4 +1,3 @@
-import io
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -45,6 +44,157 @@ def test_run_dn_bot_rejects_non_string_instruction_and_non_integer_steps():
                 pass
             else:
                 raise AssertionError("Invalid run configuration should be rejected")
+
+
+def test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls():
+    def response(call_id, action):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                id=call_id,
+                                function=SimpleNamespace(
+                                    name="dragon_nest_action",
+                                    arguments='{"action":"%s"}' % action,
+                                ),
+                            )
+                        ],
+                    )
+                )
+            ]
+        )
+
+    responses = iter(
+        [
+            response("call-1", "wait"),
+            response("call-2", "wait"),
+            response("call-3", "wait"),
+        ]
+    )
+    requests = []
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **payload: (requests.append(payload), next(responses))[1]
+            )
+        )
+    )
+
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
+        app_dn,
+        "capture_screen_base64",
+        side_effect=["frame-0", "frame-1", "frame-2", "frame-3"],
+    ), patch.object(app_dn, "execute_game_action"), patch.object(
+        app_dn, "check_emergency_stop"
+    ), patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn, "_safe_sleep"
+    ):
+        app_dn.run_dn_bot("keep this instruction", max_steps=3)
+
+    assert len(requests) == 3
+    for index, request in enumerate(requests):
+        messages = request["messages"]
+        assert len(messages) <= 1 + app_dn.MAX_CONTEXT_MESSAGES
+        assert messages[0] == {"role": "system", "content": app_dn.SYSTEM_PROMPT}
+        assert messages[1]["content"] == "keep this instruction"
+
+        image_messages = [
+            message
+            for message in messages
+            if isinstance(message.get("content"), list)
+            and any(block.get("type") == "image_url" for block in message["content"])
+        ]
+        assert len(image_messages) == 1
+        image_url = image_messages[0]["content"][1]["image_url"]["url"]
+        assert image_url.endswith("frame-%s" % index)
+        assert all(
+            "frame-%s" % old_index not in image_url
+            for old_index in range(index)
+        )
+        assert image_messages[0] is messages[-1]
+
+        for message_index, message in enumerate(messages):
+            if message.get("role") != "assistant" or "tool_calls" not in message:
+                continue
+            tool_messages = []
+            next_index = message_index + 1
+            while (
+                next_index < len(messages)
+                and messages[next_index].get("role") == "tool"
+            ):
+                tool_messages.append(messages[next_index])
+                next_index += 1
+            assert [call["id"] for call in message["tool_calls"]] == [
+                tool["tool_call_id"] for tool in tool_messages
+            ]
+
+
+def test_compaction_drops_older_turns_instead_of_newest_oversized_turn():
+    messages = [
+        {"role": "user", "content": "instruction"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "old-call",
+                    "type": "function",
+                    "function": {
+                        "name": "dragon_nest_action",
+                        "arguments": "{}",
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "old-call", "content": "old result"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": f"new-call-{index}",
+                    "type": "function",
+                    "function": {
+                        "name": "dragon_nest_action",
+                        "arguments": "{}",
+                    },
+                }
+                for index in range(app_dn.MAX_CONTEXT_MESSAGES)
+            ],
+        },
+        *[
+            {
+                "role": "tool",
+                "tool_call_id": f"new-call-{index}",
+                "content": "new result",
+            }
+            for index in range(app_dn.MAX_CONTEXT_MESSAGES)
+        ],
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Current screenshot."},
+                {"type": "image_url", "image_url": {"url": "frame-new"}},
+            ],
+        },
+    ]
+
+    compacted = app_dn._compact_messages(messages)
+
+    assert compacted[0] == {"role": "user", "content": "instruction"}
+    assert compacted[-1]["content"][1]["image_url"]["url"] == "frame-new"
+    assert not any(message.get("tool_call_id") == "old-call" for message in compacted)
+    assert not any(
+        message.get("tool_call_id", "").startswith("new-call-")
+        for message in compacted
+    )
 
 
 def test_16_9_geometry_records_vertical_letterbox_padding():

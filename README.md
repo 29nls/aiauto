@@ -89,7 +89,8 @@ JPEG 1024x768 ──► OpenRouter vision model
 - `openai` Python SDK diarahkan ke `https://openrouter.ai/api/v1`.
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
-- Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya.
+- Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
+- Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Sesi dibatasi maksimal 10 langkah.
 

@@ -84,7 +84,7 @@ Fake `capture_screen_base64` mengembalikan `Frame` nyata (via fixture `capture_r
 Tulis (di `tests/test_integration.py`):
 1. **Alur penuh 2 langkah**: skrip `[wait, stop]` → assert: 2 request terkirim, `execute_game_action` dipanggil sekali dengan `frame` dari capture kedua (`frame.encoded` cocok), pesan user terakhir berisi frame baru, urutan role `user → assistant → tool → user` benar, pasangan `tool_call_id` benar.
 2. **Hanya satu aksi per siklus**: skrip mengembalikan 2 tool call dalam satu respons → aksi kedua ditolak (pesan tool "hanya satu aksi per screenshot") dan `execute_game_action` dipanggil sekali.
-3. **(Jika 015 selesai) aksi nyata via recorder**: ganti mock `execute_game_action` dengan device recorder → assert urutan input fisik untuk `move_camera`/`wait`.
+3. **(Jika 015 selesai) aksi nyata via recorder**: ganti mock `execute_game_action` dengan device recorder → assert urutan input fisik untuk `move_camera`/`wait`. — **SELESAI 2026-08-06** setelah plan 012/015 (seam input device): tes ke-4 `test_integration_real_input_sequence_via_recorder` mengeksekusi `execute_game_action` ASLI dengan `RecordingDevice` (assert `[("moveTo", (512, 384)), ("moveTo", (800, 600))]` untuk `move_camera`, tanpa call untuk `wait`) + frame yang dipakai tiap aksi (`produced[0]` → `produced[1]`); guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input. Suite: **72 passed** saat itu; kini **83** setelah polesan parametrize `classify_api_error`.
 
 Model setelah: `test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls` (pola assert pasangan `tool_call_id`).
 

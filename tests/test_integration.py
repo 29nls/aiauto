@@ -3,9 +3,14 @@
 Jaring pengaman sebelum refactor arsitektur besar (plan 016): menjalankan loop
 penuh capture -> pesan -> adapter -> aksi -> frame baru dengan fake yang
 menggantikan capture, API, dan emergency check, tetapi mengeksekusi adapter
-(``_call_openrouter``) dan kontrak ``messages.py`` ASLI. ``execute_game_action``
-tetap di-mock di level orchestrator karena seam input device (kandidat #4)
-belum selesai.
+(``_call_openrouter``) dan kontrak ``messages.py`` ASLI.
+
+Sejak seam input device (kandidat #4, plan 012/015) selesai, satu tes
+(``test_integration_real_input_sequence_via_recorder``) mengeksekusi
+``execute_game_action`` ASLI dengan ``RecordingDevice`` dan meng-assert urutan
+input fisik; tes lainnya tetap memakai mock ``execute`` di level orchestrator
+karena menguji mekanik loop (frame flow, urutan role, penolakan aksi kedua),
+bukan jalur input.
 
 Fake capture mengembalikan ``Frame`` nyata (via fixture ``capture_region``)
 dengan encoded unik per panggilan, sehingga kontrak antar lapisan
@@ -17,7 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import call, patch
 
 import dn_bot
-from conftest import _sdk_response, _sdk_tool_call
+from conftest import RecordingDevice, _sdk_response, _sdk_tool_call
 
 
 def _scripted_client(responses):
@@ -190,4 +195,72 @@ def test_integration_next_cycle_acts_on_fresh_frame(capture_region):
                 frame=produced[1],
             ),
         ]
+    )
+
+
+def test_integration_real_input_sequence_via_recorder(capture_region):
+    """Plan 016 item 3: jalur aksi NYATA + recorder (seam 012/015 selesai).
+
+    ``run_dn_bot`` mengeksekusi ``execute_game_action`` asli dengan
+    ``RecordingDevice`` (bukan mock): urutan input fisik ``move_camera``
+    (anchor tengah lalu endpoint absolut — invariant anti-drift) dan ``wait``
+    (tanpa call device) di-assert langsung dari recorder. Hanya guard
+    (emergency/fokus) dan ``_safe_sleep`` yang di-patch agar urutan fokus pada
+    primitif input.
+    """
+    client, requests = _scripted_client(
+        [
+            _sdk_response(
+                tool_calls=[
+                    _sdk_tool_call(
+                        "call-1",
+                        '{"action": "move_camera", "coordinate": [800, 600]}',
+                    )
+                ]
+            ),
+            _sdk_response(tool_calls=[_sdk_tool_call("call-2", '{"action": "wait"}')]),
+            _sdk_response(content="selesai"),
+        ]
+    )
+    fake_capture, produced = _fake_capture(capture_region, _REGION)
+    device = RecordingDevice()
+    frames_used = []
+
+    def _execute_with_recorder(*args, **kwargs):
+        # Jalur aksi asli (validasi + pemetaan koordinat) dengan device recorder.
+        frames_used.append(kwargs["frame"])
+        return dn_bot.input_control.execute_game_action(
+            *args, **{**kwargs, "device": device}
+        )
+
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(
+        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_emergency_stop"
+    ), patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control, "_safe_sleep"
+    ), patch.object(dn_bot.orchestrator, "execute_game_action", _execute_with_recorder):
+        dn_bot.run_dn_bot("arahkan kamera ke kanan, lalu tunggu", max_steps=3)
+
+    # Urutan input fisik nyata: move_camera = anchor ke tengah (512, 384) dulu,
+    # lalu endpoint absolut (800, 600); wait = tidak ada call device sama sekali.
+    device.assert_calls(
+        [
+            ("moveTo", (512, 384)),
+            ("moveTo", (800, 600)),
+        ]
+    )
+    # Aksi dimetakan terhadap frame yang model amati: frame sesi, lalu frame
+    # segar setelah capture ulang (bukan frame basi).
+    assert frames_used == [produced[0], produced[1]]
+    # 3 request model (move_camera, wait, stop); frame terbaru di pesan user akhir.
+    assert len(requests) == 3
+    assert requests[2]["messages"][-1]["content"][1]["image_url"]["url"].endswith(
+        "frame-3"
     )

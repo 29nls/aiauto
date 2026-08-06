@@ -63,6 +63,8 @@ Jangan commit `.env`, karena berisi secret API. Jangan menaruh API key di source
 python app_dn.py
 ```
 
+Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown.
+
 Script memberi waktu lima detik untuk memindahkan fokus ke jendela game. **Hak Administrator tidak selalu diperlukan dan tidak menjamin input akan diterima.** Jika client game berjalan dengan hak yang lebih tinggi daripada terminal, Windows dapat membatasi input lintas proses.
 
 Jika pengujian yang sah di komputer kamu memang membutuhkan terminal elevated, buka Command Prompt atau VS Code dengan klik kanan → **Run as Administrator**, lalu ulangi perintah di atas. Jangan menaikkan hak akses hanya untuk mengakali proteksi game.
@@ -93,6 +95,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Screenshot region game dipertahankan aspect ratio-nya, lalu dipasang di tengah canvas JPEG 1024×768 dengan padding hitam dan dikirim sebagai data URI.
 - Koordinat model pada area padding ditolak; koordinat pada area game dipetakan kembali memakai offset, ukuran content, dan capture region fisik.
 - Prompt agent juga menandai padding sebagai area non-actionable agar model memilih titik di dalam game.
+- Konten yang tampil di dalam screenshot (chat, dialog NPC, tulisan UI) diperlakukan sebagai **data tidak tepercaya**: `SYSTEM_PROMPT` menandainya dengan delimiter eksplisit (`<untrusted_screenshot>`) dan melarang menuruti instruksi yang berasal dari dalam gambar. Layar yang ambigu atau bertentangan dengan tujuan sesi mengakhiri sesi tanpa aksi.
 - `openai` Python SDK diarahkan ke `https://openrouter.ai/api/v1`.
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
@@ -102,6 +105,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Sesi dibatasi maksimal 10 langkah.
 - Panggilan OpenRouter memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
+- Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenRouter. API key, token, dan konten percakapan tidak pernah di-log.
 
 Function yang tersedia:
 
@@ -171,6 +175,7 @@ Itu dapat terjadi karena failsafe, `Ctrl+C`, jendela kehilangan fokus, error Ope
 
 - AI cloud tidak cukup cepat untuk gameplay aksi real-time.
 - Computer vision dapat salah mengenali objek atau UI; selalu awasi prosesnya.
+- Teks dalam game bisa berisi konten adversarial; agent diperintahkan memperlakukannya sebagai data tidak tepercaya, tetapi kepatuhan model terhadap instruksi tersebut tidak dijamin.
 - OpenRouter free models memiliki rate limit dan kapasitas yang dapat berubah.
 - API key dan beberapa model dapat menimbulkan biaya; pastikan model yang dipilih benar-benar bertanda `:free`.
 - Input otomatis dapat memicu aturan anti-cheat walaupun script tidak mencoba menghindarinya.

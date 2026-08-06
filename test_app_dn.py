@@ -765,3 +765,176 @@ def test_run_dn_bot_retried_call_runs_action_exactly_once():
     execute.assert_called_once_with(
         action="wait", coordinate=None, text=None, duration=app_dn.MOVE_DURATION
     )
+
+
+def test_system_prompt_marks_screenshot_content_as_untrusted():
+    """Guard: screenshot content is explicitly marked untrusted with delimiters."""
+    prompt = app_dn.SYSTEM_PROMPT
+    assert "<untrusted_screenshot>" in prompt
+    assert "</untrusted_screenshot>" in prompt
+    assert "tidak tepercaya" in prompt.lower()
+    assert "bukan instruksi" in prompt.lower()
+
+
+def test_system_prompt_stops_on_ambiguous_screen():
+    """Guard: ambiguous screens must end the session without a tool call."""
+    prompt = app_dn.SYSTEM_PROMPT.lower()
+    assert "ambigu" in prompt
+    assert "tidak ada tool call" in prompt
+
+
+def test_preflight_rejects_non_windows_platform():
+    with patch.object(app_dn.os, "name", "posix"):
+        try:
+            app_dn.preflight_configuration()
+        except RuntimeError as error:
+            assert "Windows" in str(error)
+        else:
+            raise AssertionError("Non-Windows platform must be rejected")
+
+
+def test_preflight_requires_openrouter_api_key():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except RuntimeError as error:
+            assert "OPENROUTER_API_KEY" in str(error)
+        else:
+            raise AssertionError("Missing API key must be rejected")
+
+
+def test_preflight_requires_openrouter_model():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except RuntimeError as error:
+            assert "OPENROUTER_MODEL" in str(error)
+        else:
+            raise AssertionError("Missing model must be rejected")
+
+
+def test_preflight_requires_window_title():
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except RuntimeError as error:
+            assert "DN_WINDOW_TITLE" in str(error)
+        else:
+            raise AssertionError("Missing window title must be rejected")
+
+
+def test_preflight_rejects_partial_capture_rect():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "1920",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except ValueError as error:
+            assert "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT" in str(error)
+        else:
+            raise AssertionError("Partial capture rect must be rejected")
+
+
+def test_preflight_rejects_non_integer_capture_value():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "lebar",
+            "DN_CAPTURE_HEIGHT": "1080",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except ValueError as error:
+            assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
+        else:
+            raise AssertionError("Non-integer capture value must be rejected")
+
+
+def test_preflight_rejects_invalid_monitor():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            "DN_MONITOR": "dua",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn.preflight_configuration()
+        except ValueError as error:
+            assert "DN_MONITOR harus berupa bilangan bulat" in str(error)
+        else:
+            raise AssertionError("Non-integer monitor must be rejected")
+
+
+def test_preflight_accepts_valid_configuration():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+        },
+        clear=True,
+    ):
+        app_dn.preflight_configuration()
+
+
+def test_new_session_id_is_unique_and_log_safe():
+    first = app_dn._new_session_id()
+    second = app_dn._new_session_id()
+    assert first != second
+    assert len(first) >= 8
+    assert all(ch.isalnum() or ch == "-" for ch in first)
+
+
+def test_call_openrouter_logs_request_latency():
+    def create(**payload):
+        return SimpleNamespace(ok=True)
+
+    calls = []
+    with patch.object(
+        app_dn.log, "info", side_effect=lambda *args: calls.append(args)
+    ):
+        app_dn._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert any(
+        isinstance(args[0], str) and "OpenRouter request selesai" in args[0]
+        for args in calls
+    )

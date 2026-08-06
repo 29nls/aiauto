@@ -54,8 +54,34 @@ def test_watchdog_enters_recovery_after_repeated_no_progress():
     )
     watchdog.validate_and_advance("pre_dungeon", "wait")
     watchdog.validate_and_advance("pre_dungeon", "wait")
-    watchdog.validate_and_advance("pre_dungeon", "wait")
     assert watchdog.state is dn_bot.FarmState.RECOVERY
+
+
+def test_watchdog_recovery_counter_is_cumulative():
+    watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE, max_recovery_attempts=2)
+    watchdog.validate_and_advance("recovery", "wait")
+    watchdog.validate_and_advance("pre_dungeon", "wait")
+    watchdog.validate_and_advance("recovery", "wait")
+    watchdog.validate_and_advance("pre_dungeon", "wait")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="Recovery"):
+        watchdog.validate_and_advance("recovery", "wait")
+
+
+def test_watchdog_rejects_non_text_action():
+    watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE)
+    with pytest.raises(dn_bot.FarmSafetyStop, match="bukan teks"):
+        watchdog.validate_and_advance("pre_dungeon", None)
+
+
+def test_watchdog_rejects_action_at_budget_before_execution():
+    watchdog = dn_bot.FarmWatchdog(
+        dn_bot.MINOTAUR_PROFILE,
+        max_actions_without_transition=20,
+        max_actions_per_run=1,
+    )
+    watchdog.validate_and_advance("entering_dungeon", "left_click")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="batas"):
+        watchdog.ensure_action_allowed(dn_bot.FarmState.COMBAT)
 
 
 def test_watchdog_stops_if_recovery_stalls():
@@ -65,9 +91,16 @@ def test_watchdog_stops_if_recovery_stalls():
         state_timeout_seconds=60,
     )
     watchdog.validate_and_advance("recovery", "wait")
-    watchdog.validate_and_advance("recovery", "wait")
     with pytest.raises(dn_bot.FarmSafetyStop, match="Recovery"):
         watchdog.validate_and_advance("recovery", "wait")
+
+
+def test_watchdog_rejects_recovery_at_cumulative_limit_before_action():
+    watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE, max_recovery_attempts=1)
+    watchdog.validate_and_advance("recovery", "wait")
+    watchdog.validate_and_advance("pre_dungeon", "wait")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="Recovery"):
+        watchdog.ensure_action_allowed(dn_bot.FarmState.RECOVERY)
 
 
 def test_watchdog_enters_recovery_after_state_timeout():
@@ -77,7 +110,7 @@ def test_watchdog_enters_recovery_after_state_timeout():
         state_timeout_seconds=5,
         clock=lambda: now[0],
     )
-    now[0] = 6.0
+    now[0] = 5.0
     watchdog.check()
     assert watchdog.state is dn_bot.FarmState.RECOVERY
 
@@ -117,6 +150,18 @@ def test_farm_loop_requires_farm_state_and_uses_extended_prompt(capture_region):
             dn_bot.run_dn_bot(
                 "farm minotaur", max_steps=1, farm_profile=dn_bot.MINOTAUR_PROFILE
             )
+
+
+def test_return_navigation_only_allows_f12_for_action_key():
+    watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE)
+    watchdog.validate_and_advance("entering_dungeon", "left_click")
+    watchdog.validate_and_advance("combat", "wait")
+    watchdog.validate_and_advance("boss_reward", "wait")
+    watchdog.validate_and_advance("loot_chest", "wait")
+    watchdog.validate_and_advance("loot_result", "left_click")
+    watchdog.validate_and_advance("return_navigation", "press_action_key", "f12")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="f12"):
+        watchdog.validate_and_advance("pre_dungeon", "press_action_key", "f")
 
 
 def test_minotaur_tool_requires_farm_state():

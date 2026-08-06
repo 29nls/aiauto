@@ -210,6 +210,7 @@ def run_dn_bot(
                         action,
                         request.input.get("text"),
                     )
+                    watchdog.ensure_action_allowed(candidate_state)
                 try:
                     execute_game_action(
                         action=action,

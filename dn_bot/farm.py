@@ -179,14 +179,18 @@ class FarmWatchdog:
             raise FarmSafetyStop(
                 f"Transisi farming tidak aman: {self.state.value} -> {candidate.value}."
             )
+        if not isinstance(action, str):
+            raise FarmSafetyStop(
+                "Model mengirim action yang kosong atau bukan teks; sesi dihentikan."
+            )
         if action not in self.profile.allowed_actions[self.state]:
             raise FarmSafetyStop(
                 f"Aksi {action!r} tidak diizinkan pada state {self.state.value}."
             )
-        if self.state == FarmState.RECOVERY and action == "press_action_key":
-            if (text or "").casefold() != "f12":
+        if self.state in {FarmState.RECOVERY, FarmState.RETURN_NAVIGATION}:
+            if action == "press_action_key" and (text or "").casefold() != "f12":
                 raise FarmSafetyStop(
-                    "Recovery farming hanya boleh menekan press_action_key f12."
+                    "Navigasi farming hanya boleh menekan press_action_key f12."
                 )
         if (
             self.state == FarmState.LOOT_RESULT
@@ -198,8 +202,29 @@ class FarmWatchdog:
             )
         return candidate
 
+    def ensure_action_allowed(self, candidate: FarmState | None = None) -> None:
+        """Reject the next physical action before it can be executed."""
+        if self._actions_without_transition >= self.max_actions_without_transition:
+            raise FarmSafetyStop(
+                f"State {self.state.value} tidak menunjukkan progres setelah "
+                f"{self.max_actions_without_transition} aksi."
+            )
+        if self._actions_in_run >= self.max_actions_per_run:
+            raise FarmSafetyStop(
+                f"Run melewati batas {self.max_actions_per_run} aksi; sesi dihentikan."
+            )
+        if (
+            candidate == FarmState.RECOVERY
+            and self.state != FarmState.RECOVERY
+            and self._recovery_attempts >= self.max_recovery_attempts
+        ):
+            raise FarmSafetyStop(
+                "Recovery farming berulang terlalu sering; sesi dihentikan."
+            )
+
     def advance(self, candidate: FarmState) -> FarmState:
         """Commit a previously validated transition after its action succeeds."""
+        self.ensure_action_allowed(candidate)
         previous = self.state
         if candidate == previous:
             self._actions_without_transition += 1
@@ -234,12 +259,10 @@ class FarmWatchdog:
         """Enter bounded recovery on stagnation; stop if recovery also stalls."""
         elapsed = self._clock() - self._state_started_at
         stalled = (
-            elapsed > self.state_timeout_seconds
-            or self._actions_without_transition > self.max_actions_without_transition
-            or (
-                self.state != FarmState.RECOVERY
-                and self._actions_in_run > self.max_actions_per_run
-            )
+            elapsed >= self.state_timeout_seconds
+            or                self._actions_without_transition >= self.max_actions_without_transition
+
+            or self._actions_in_run >= self.max_actions_per_run
         )
         if not stalled:
             return

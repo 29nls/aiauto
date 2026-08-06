@@ -42,3 +42,17 @@ jobs:
         run: python -m compileall -q dn_bot tests
       - name: Run offline tests
         run: python -m pytest -q tests
+      - name: Verify clean working tree
+        # GitHub runners are ephemeral, so a cache-cleanup step (rm -rf
+        # __pycache__) would be a no-op — nothing persists across runs. This
+        # gate is the real prevention: it fails the job if any step generates
+        # an artifact that is NOT gitignored, so future tooling cannot
+        # silently litter the repo with dead files. Everything this job
+        # produces (__pycache__, .pytest_cache, build/, *.egg-info) is already
+        # covered by .gitignore.
+        run: |
+          $dirty = git status --porcelain
+          if ($dirty) {
+            Write-Error "Artefak tak ter-ignore terdeteksi di working tree:`n$dirty"
+            exit 1
+          }

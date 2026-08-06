@@ -36,6 +36,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Workflow CI kini membangun wheel paket (`pip wheel . --no-deps`) sehingga `pyproject.toml` yang invalid atau packaging rusak gagal di CI, bukan hanya terverifikasi tekstual oleh tes drift (temuan survey baru).
 - `check_emergency_stop` kini meneruskan `EmergencyStop`/`FocusLost` yang dilempar device seam tanpa membungkus ulang (re-raise sebelum broad `except Exception`), konsisten dengan konvensi hierarki exception / pola `_call_openrouter` (temuan survey baru).
 - `.env.example` dibersihkan (baris `[TEMPLATE]` artefak dihapus) dan menambahkan `DN_INSTRUCTION` (variabel yang didukung sejak T3); `OPENROUTER_TIMEOUT` sudah tercantum sebelumnya.
+- `.gitignore` diperluas dengan artefak tooling masa depan (`.coverage`, `htmlcov/`, `.mypy_cache/`, `.ruff_cache/`, `.tox/`, `.nox/`, `*.whl`), dan workflow CI ditutup dengan gate **working tree bersih** (`git status --porcelain` kosong). Runner GitHub bersifat ephemeral sehingga langkah pembersihan cache (`rm -rf __pycache__`) adalah no-op — pencegahan yang bermakna adalah tripwire yang menggagalkan job jika ada langkah yang menghasilkan artefak yang **tidak** ter-ignore, sehingga tooling baru tidak bisa diam-diam menumpuk file mati di repo.
 
 ### Removed
 

@@ -10,6 +10,16 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Coverage and tooling caches (guard: if a future lint/typecheck/coverage
+# tool is added, its caches must not accumulate in the tree)
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+*.whl
+
 # Packaging artifacts (pip install -e . / pip wheel create these in-tree)
 *.egg-info/
 build/

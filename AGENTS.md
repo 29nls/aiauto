@@ -104,7 +104,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - `requirements.txt`: **pin eksak `==`** (5 dependensi runtime); `requirements-dev.txt` = `-r requirements.txt` + `pytest==8.3.5`. Tanpa lockfile (keputusan sadar) → beralih ke `constraints.txt` dari `pip freeze` jika dependensi bertambah.
 - `pyproject.toml` (setuptools): memirror kelima pin runtime (tes drift mencegah divergence) dan mendeklarasikan console script `dn-bot`; `version = 0.2.0.dev0` (unreleased — naikkan saat release).
-- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan README — kompatibilitas wheel pin diverifikasi), `timeout-minutes: 10`, pip cache via `setup-python` (`cache: pip`), step `pip check` setelah install, step `pip wheel . --no-deps` (validasi packaging/pyproject di CI), lalu `compileall` + pytest.
+- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan README — kompatibilitas wheel pin diverifikasi), `timeout-minutes: 10`, pip cache via `setup-python` (`cache: pip`), step `pip check` setelah install, step `pip wheel . --no-deps` (validasi packaging/pyproject di CI), lalu `compileall` + pytest. Step penutup = **gate working tree bersih** (`git status --porcelain` kosong; runner ephemeral membuat cleanup cache no-op, jadi pencegahan artefak ada di dua tempat: daftar ignore yang lengkap — termasuk `.coverage`/`htmlcov/`/`.mypy_cache/`/`.ruff_cache/`/`.tox/`/`.nox/`/`*.whl` — dan tripwire gate yang menggagalkan job bila ada langkah menghasilkan artefak tak ter-ignore).
 
 ## Git & shared checkout
 

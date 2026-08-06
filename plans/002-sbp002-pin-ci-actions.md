@@ -1,7 +1,9 @@
 # Plan 002 — SBP-002/F-04: pin actions CI ke SHA penuh + least-privilege (verify)
 
 - **Temuan:** `actions/checkout@v4`, `actions/setup-python@v5` (tag bergerak), tanpa blok `permissions:` → supply-chain (tag mutation) + token berjalan dengan permission default. Medium.
-- **Status:** ✅ Fixed di worktree (belum di-commit). Plan ini = verifikasi.
+- **Status:** ✅ Fixed — **Verified (reconcile 2026-08-06)**: SHA 40-hex ×2 + `permissions: contents: read`; actionlint exit 0; yaml-lint successful.
+
+> **Drift (disengaja, bukan regresi):** kutipan SHA di bawah (v4.2.1/v5.6.0) sudah di-upgrade oleh F-07 (plan 008/017) ke **v7.0.1** (`3d3c42e5…`) / **v7.0.0** (`5fda3b95…`). Invariant pin-SHA + least-privilege tetap berdiri.
 
 ## Konteks
 
@@ -40,7 +42,7 @@ Output `git ls-remote` sama persis dengan SHA yang di-pin; actionlint exit 0 tan
 
 ## Rencana tes
 
-Suite 60 tes berjalan di CI sebagai verifikasi nyata; run lokal `python -m pytest -q` untuk regresi cepat.
+Suite 72 tes berjalan di CI sebagai verifikasi nyata; run lokal `python -m pytest -q` untuk regresi cepat (ekspektasi "60" basi).
 
 ## Catatan pemeliharaan
 

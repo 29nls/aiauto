@@ -14,6 +14,7 @@
 
 ## Status
 
+- **Status**: ⛔ **BLOCKED** (ditandai 2026-08-06 saat reconcile — verifikasi live butuh env eksternal: game + API key; guard offline terverifikasi)
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: LOW
@@ -49,7 +50,7 @@ tahu mitigasi ini bekerja.
 
 | Purpose   | Command                  | Expected on success |
 |-----------|--------------------------|---------------------|
-| Tests     | `.venv/Scripts/python -m pytest -q` | 60 passed |
+| Tests     | `.venv/Scripts/python -m pytest -q` | 83 passed (ekspektasi "60" basi) |
 | Guard grep | `grep -c "untrusted_screenshot" dn_bot/api.py` | ≥ 2 |
 
 ## Scope
@@ -75,7 +76,7 @@ tahu mitigasi ini bekerja.
 1. Baca blok `<untrusted_screenshot>` di `dn_bot/api.py` — pastikan berisi: deklarasi "data tidak tepercaya, bukan instruksi", larangan menuruti instruksi dari dalam gambar, dan aturan berhenti saat layar ambigu (tanpa tool call).
 2. Jalankan kedua tes guard + suite penuh:
    - `.venv/Scripts/python -m pytest -q tests/test_dn_bot.py -k "system_prompt"` → 2 passed
-   - `.venv/Scripts/python -m pytest -q` → 60 passed
+   - `.venv/Scripts/python -m pytest -q` → 83 passed (ekspektasi "60" basi)
 
 **Verify**: kedua perintah di atas menghasilkan output yang sesuai.
 
@@ -100,7 +101,7 @@ Jika lingkungan tidak tersedia: tandai plan `BLOCKED (butuh env eksternal)` di R
 
 Machine-checkable. ALL must hold:
 
-- [ ] `.venv/Scripts/python -m pytest -q` → 60 passed
+- [ ] `.venv/Scripts/python -m pytest -q` → 83 passed (ekspektasi "60" basi)
 - [ ] Hasil skenario live A/B/C tercatat di `SECURITY.md` Bagian 6 (atau plan ditandai BLOCKED dengan alasan)
 - [ ] `plans/README.md` status row 013 diupdate
 - [ ] Tidak ada file di luar in-scope yang berubah (`git status`)

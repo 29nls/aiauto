@@ -52,7 +52,7 @@ diteruskan tanpa cek. (README menyatakan proyek Windows-only.)
 | Purpose   | Command                  | Expected on success |
 |-----------|--------------------------|---------------------|
 | Guard grep | `grep -n 'os.name != "nt"' dn_bot/config.py dn_bot/safety.py` | 2 baris, keduanya `raise` |
-| Tests     | `.venv/Scripts/python -m pytest -q` | 60 passed |
+| Tests     | `.venv/Scripts/python -m pytest -q` | 83 passed (ekspektasi "60" basi) |
 
 ## Scope
 
@@ -78,7 +78,7 @@ diteruskan tanpa cek. (README menyatakan proyek Windows-only.)
 - Baca propagasi di `dn_bot/orchestrator.py`: cari `except (EmergencyStop, FocusLost): raise` — `FocusLost` tidak boleh tertelan `except Exception` mana pun.
 - `grep -n "except" dn_bot/api.py` → `_call_openrouter` tidak memanggil guard di blok retry.
 
-**Verify**: grep menghasilkan baris yang sesuai; suite `60 passed`.
+**Verify**: grep menghasilkan baris yang sesuai; suite `83 passed` (ekspektasi "60" basi).
 
 ### Step 2: Konfirmasi tes penjaga
 
@@ -95,7 +95,7 @@ diteruskan tanpa cek. (README menyatakan proyek Windows-only.)
 Machine-checkable. ALL must hold:
 
 - [ ] `grep -n 'os.name != "nt"'` → 2 baris dengan `raise`
-- [ ] `.venv/Scripts/python -m pytest -q` → 60 passed
+- [x] `.venv/Scripts/python -m pytest -q` → 83 passed (verified via reconcile 2026-08-06)
 - [ ] `plans/README.md` status row 014 diupdate
 - [ ] Tidak ada file di luar in-scope yang berubah
 

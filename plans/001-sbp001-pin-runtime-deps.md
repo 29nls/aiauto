@@ -1,7 +1,7 @@
 # Plan 001 — SBP-001/F-03: pin dependensi runtime eksak (verify)
 
 - **Temuan:** Dependensi runtime tidak di-pin (`openai>=1.40.0`, dll), tanpa lock file → supply-chain / build tidak reproducible. Medium.
-- **Status:** ✅ Fixed di worktree (belum di-commit). Plan ini = verifikasi bahwa fix berdiri + tes menjaganya.
+- **Status:** ✅ Fixed — **Verified (reconcile 2026-08-06)**: 5 pin `==`, tanpa `>=`/`~=`/`<`; `pip freeze` cocok persis kelima pin.
 
 ## Konteks
 
@@ -24,7 +24,7 @@
 
 1. `grep -c "==" requirements.txt` → 5; pastikan tidak ada `>=`/`~=` tersisa: `grep -nE ">=|~=" requirements.txt` → kosong.
 2. `pip freeze` di venv aktif → kelima versi persis cocok dengan pin.
-3. Jalankan `python -m pytest -q` → seluruh suite lolos (target 60).
+3. Jalankan `python -m pytest -q` → seluruh suite lolos (target 72; ekspektasi "60" di plan ini basi — suite tumbuh via 016 + unit recorder).
 4. Baca README "Dependensi & lock" — tetap akurat terhadap file aktual.
 
 ## Verifikasi (machine-checkable)
@@ -32,7 +32,7 @@
 ```bash
 grep -cE "^[a-zA-Z_-]+==[0-9]" requirements.txt   # expect 5
 grep -nE ">=|~=|<" requirements.txt               # expect no output
-.venv/Scripts/python -m pytest -q                 # expect 60 passed
+.venv/Scripts/python -m pytest -q                 # expect 72 passed (verified 2026-08-06)
 ```
 
 ## Batas scope

@@ -1,7 +1,7 @@
 # Plan 004 — SBP-004: parsing env tanpa pesan error yang actionable (verify)
 
 - **Temuan:** `int(os.getenv(...))` mentah melempar `ValueError` dengan traceback membingungkan saat nilai `.env` salah format. Low.
-- **Status:** ✅ Fixed (via `_int_env` + `_validate_capture_env`). Plan ini = verifikasi.
+- **Status:** ✅ Fixed (via `_int_env` + `_validate_capture_env`) — **Verified (reconcile 2026-08-06)**: 0 `int(os.getenv)` mentah di `dn_bot/`.
 
 ## Konteks
 
@@ -21,7 +21,7 @@ Semua parsing integer env dipusatkan di `_int_env` yang fail-fast dengan pesan j
 
 1. `grep -n "int(os.getenv" dn_bot/ --include="*.py"` → kosong (semua lewat `_int_env`).
 2. Jalankan tes env: `python -m pytest -q tests/test_dn_bot.py -k "int_env or non_integer or empty_rect"` → semua pass.
-3. Suite penuh `python -m pytest -q` → 60 passed.
+3. Suite penuh `python -m pytest -q` → 72 passed (ekspektasi "60" basi).
 
 ## Verifikasi (machine-checkable)
 

@@ -1,7 +1,7 @@
 """Safety guards: emergency stop, window focus, and responsive sleep.
 
-This module depends only on ``dn_bot.config`` so capture and input modules can
-use it without import cycles.
+This module depends only on ``dn_bot.config`` and ``dn_bot.device`` so capture
+and input modules can use it without import cycles.
 """
 
 from __future__ import annotations
@@ -10,19 +10,16 @@ import os
 import re
 import time
 
-import pydirectinput
-
 from .config import EmergencyStop, FocusLost
-
-# PyDirectInput's failsafe is an emergency mechanism, not an anti-cheat feature.
-pydirectinput.FAILSAFE = True
-pydirectinput.PAUSE = 0.03
+from .device import DeviceInput, PyDirectInputDevice
 
 
-def check_emergency_stop() -> None:
+def check_emergency_stop(
+    device: DeviceInput = PyDirectInputDevice(),
+) -> None:
     """Stop before another action if the cursor is in the failsafe corner."""
     try:
-        x, y = pydirectinput.position()
+        x, y = device.position()
     except Exception as error:
         raise EmergencyStop("Tidak dapat memeriksa posisi cursor; sesi dihentikan.") from error
     if 0 <= x <= 5 and 0 <= y <= 5:
@@ -75,11 +72,18 @@ def check_target_window() -> None:
         )
 
 
-def _safe_sleep(seconds: float) -> None:
-    """Sleep in short intervals so emergency/focus checks remain responsive."""
+def _safe_sleep(
+    seconds: float,
+    device: DeviceInput = PyDirectInputDevice(),
+) -> None:
+    """Sleep in short intervals so emergency/focus checks remain responsive.
+
+    ``device`` defaults to the production adapter; the action layer threads
+    its injected device through so emergency checks use the same seam.
+    """
     deadline = time.monotonic() + seconds
     while True:
-        check_emergency_stop()
+        check_emergency_stop(device)
         check_target_window()
         remaining = deadline - time.monotonic()
         if remaining <= 0:

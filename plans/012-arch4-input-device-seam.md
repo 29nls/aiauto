@@ -1,7 +1,7 @@
 # Plan 012 — Kandidat #4: seam input device nyata (implement)
 
 - **Temuan:** `input_control.py` memanggil `pydirectinput` **langsung** (9 call site); tes meng-`patch` namespace modul (`dn_bot.input_control.pydirectinput`) — coupling keras ke library, tes tidak bisa merekam urutan input secara natural, dan penggantian device (atau dry-run) butuh refactor.
-- **Status:** ⬜ Pending. Plan ini = protocol/adapter: pydirectinput di produksi, recorder in-memory di tes.
+- **Status:** ✅ Done (2026-08-06 — dieksekusi bersama plan 015, temuan yang sama; lihat catatan rekonsiliasi di plans/README.md). Plan ini = protocol/adapter: pydirectinput di produksi, recorder in-memory di tes.
 
 ## Konteks
 

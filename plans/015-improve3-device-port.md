@@ -120,11 +120,11 @@ class PyDirectInputDevice:
 
 Machine-checkable. ALL must hold:
 
-- [ ] `grep -rn "pydirectinput" dn_bot/input_control.py` → 0 match
-- [ ] `grep -rn "pydirectinput" dn_bot/safety.py` → hanya import/setup (position lewat device)
-- [ ] `.venv/Scripts/python -m pytest -q` → 60 passed
-- [ ] `plans/README.md` status row 015 diupdate
-- [ ] Tidak ada file di luar in-scope yang berubah
+- [x] `grep -rn "pydirectinput" dn_bot/input_control.py` → 0 match
+- [x] `grep -rn "pydirectinput" dn_bot/safety.py` → 0 match (FAILSAFE/PAUSE + semua call pindah ke `device.py`; position lewat device)
+- [x] `.venv/Scripts/python -m pytest -q` → **71 passed** saat eksekusi (60 di plan adalah angka era `app_dn.py`; suite aktual 70 + 1 unit `RecordingDevice`); kini **83** setelah polesan parametrize `classify_api_error`
+- [x] `plans/README.md` status row 015 diupdate
+- [x] Tidak ada file di luar in-scope yang berubah (`device.py` baru; `input_control.py`, `safety.py`, `tests/`; + sinkronisasi dokumen AGENTS/CHANGELOG/README)
 
 ## STOP conditions
 

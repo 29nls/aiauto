@@ -121,6 +121,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
 - `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari anchor tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
+- Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes — mengganti library input (atau mode dry-run) cukup mengimplementasikan protocol baru, tanpa menyentuh logika aksi.
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
@@ -151,12 +152,14 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
 │   ├── messages.py    # Kontrak wire-shape pesan OpenAI-compatible
-│   ├── input_control.py # Aksi fisik tervalidasi (pydirectinput)
+│   ├── device.py      # Seam input device (protocol + adapter pydirectinput)
+│   ├── input_control.py # Aksi fisik tervalidasi (via device seam)
 │   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
 │   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks
 ├── tests/             # Suite offline (pytest)
-│   ├── conftest.py
-│   └── test_dn_bot.py
+│   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
+│   ├── test_dn_bot.py
+│   └── test_integration.py # Tes integration end-to-end loop (plan 016)
 ├── requirements.txt   # Dependency runtime Python (pin eksak = lock)
 ├── requirements-dev.txt # Dependency development + runtime untuk tes offline (pytest di atas -r requirements.txt)
 ├── pytest.ini         # Konfigurasi pytest (testpaths, pythonpath)

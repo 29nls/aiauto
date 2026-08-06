@@ -4,9 +4,30 @@ The project root is importable because ``pytest.ini`` sets ``pythonpath = .``;
 no manual ``sys.path`` manipulation is needed here.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 import dn_bot
+
+
+def _sdk_response(content=None, tool_calls=()):
+    """SDK-shaped response with a message that carries text + tool calls."""
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=list(tool_calls))
+            )
+        ]
+    )
+
+
+def _sdk_tool_call(call_id, arguments):
+    """SDK-shaped tool call object for dragon_nest_action."""
+    return SimpleNamespace(
+        id=call_id,
+        function=SimpleNamespace(name="dragon_nest_action", arguments=arguments),
+    )
 
 
 @pytest.fixture

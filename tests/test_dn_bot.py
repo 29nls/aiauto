@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import dn_bot
+from conftest import _sdk_response, _sdk_tool_call
 from PIL import Image
 
 
@@ -26,23 +27,6 @@ def _fake_client(create):
     )
 
 
-def _sdk_response(content=None, tool_calls=()):
-    """SDK-shaped response with a message that carries text + tool calls."""
-    return SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(content=content, tool_calls=list(tool_calls))
-            )
-        ]
-    )
-
-
-def _sdk_tool_call(call_id, arguments):
-    """SDK-shaped tool call object for dragon_nest_action."""
-    return SimpleNamespace(
-        id=call_id,
-        function=SimpleNamespace(name="dragon_nest_action", arguments=arguments),
-    )
 
 
 def test_openrouter_client_uses_configured_openrouter_base_url():

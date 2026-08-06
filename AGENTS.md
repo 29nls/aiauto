@@ -80,7 +80,8 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - Suite offline murni: tanpa game, tanpa mouse fisik, tanpa OpenRouter. `_FakeAPIError`/`_FakeTimeoutError`/`_fake_client` menyimulasikan SDK.
 - **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.input_control.pydirectinput`, `dn_bot.api.time.sleep`), bukan modul definisi.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **67 tes**.
+- Jumlah target saat ini: **70 tes**.
+- `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
 
 ## Env & config
 

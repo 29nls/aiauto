@@ -10,6 +10,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 
 - Package `dn_bot/` baru: 6 modul bebas-cycle (`config`, `safety`, `capture`, `input_control`, `api`, `orchestrator`) + `__init__` re-export + `__main__` entrypoint, menggantikan file tunggal `app_dn.py`.
 - Konfigurasi pytest di `pytest.ini` (`testpaths = tests`, `pythonpath = .`) — `python -m pytest` berjalan tanpa argumen dari root proyek.
+- `tests/test_integration.py`: 3 tes integration end-to-end loop `run_dn_bot` (fake capture `Frame` nyata dengan encoded unik + fake client SDK-shaped direplay melalui adapter asli) — alur penuh 2 langkah, satu aksi per siklus, dan aksi siklus berikutnya dimetakan ke frame segar; jaring pengaman sebelum refactor arsitektur (plan 016).
 - Fixture `capture_region` di `tests/conftest.py` untuk me-pin global state capture (`_capture_region`/`_capture_geometry`) per tes.
 - `SECURITY.md` baru: threat model, asumsi, mitigasi, dan daftar temuan (F-01..F-07) agar review keamanan berikutnya tidak mengulang temuan yang sama.
 

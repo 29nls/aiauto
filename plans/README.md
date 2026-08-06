@@ -45,14 +45,14 @@ Dari audit improve yang dianalisis pada commit `89b6c5a` (era `app_dn.py`; sebel
 | [013-improve1-prompt-injection.md](013-improve1-prompt-injection.md) | #1 Indirect prompt injection via screenshot | P1 | — | TODO (mitigasi ada; verifikasi live pending) |
 | [014-improve2-fail-open-non-windows.md](014-improve2-fail-open-non-windows.md) | #2 Cek fokus fail-open di non-Windows | P1 | — | TODO (sudah fail-closed; verifikasi) |
 | [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | TODO (implement) |
-| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | TODO (implement) |
+| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 3 tes, suite 70; device recorder dari 015 menyusul) |
 | [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | DONE (dasar + freshness: checkout v7.0.1, setup-python v7.0.0, 2026-08-06) |
 
 ### Dependency order
 
 1. **013**, **014**, **017** — verifikasi/penyelesaian keamanan, independen, biaya kecil. Kerjakan duluan (P1).
-2. **015** (device port) → **016** (integration tests): recorder device dari 015 membuat tes integration lebih natural (assert urutan input nyata); 016 boleh mulai paralel memakai patch yang ada.
-3. **016** adalah jaring pengaman untuk refactor arsitektur lain (010/011/015) — idealnya sebelum refactor besar berikutnya.
+2. **015** (device port) → **016** (integration tests): 016 SUDAH selesai (2026-08-06, 3 tes, pakai mock `execute_game_action` karena 015 belum ada); 015 menambahkan recorder device agar assert urutan input nyata bisa menyusul.
+3. **016** adalah jaring pengaman untuk refactor arsitektur lain (010/011/015) — sudah berdiri sebelum refactor besar berikutnya.
 
 ### Rekonsiliasi dengan inventaris 001–012
 

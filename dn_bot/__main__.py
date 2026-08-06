@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
+import os
 import time
 
 from .config import (
+    DEFAULT_INSTRUCTION,
     START_DELAY_SECONDS,
     EmergencyStop,
     FocusLost,
@@ -14,7 +17,37 @@ from .config import (
 from .orchestrator import run_dn_bot
 
 
-def main() -> None:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments (stdlib argparse)."""
+    parser = argparse.ArgumentParser(
+        prog="python -m dn_bot",
+        description="Vision agent untuk eksperimen kontrol input Dragon Nest.",
+    )
+    parser.add_argument(
+        "--instruction",
+        help=(
+            "Tujuan sesi. Precedence: flag ini > env DN_INSTRUCTION > teks "
+            "bawaan (DEFAULT_INSTRUCTION)."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _resolve_instruction(cli_instruction: str | None) -> str:
+    """Resolve the session goal: CLI flag > DN_INSTRUCTION env > default text.
+
+    An empty flag/env value is treated as unset, falling back to the next
+    precedence level; ``run_dn_bot`` still rejects a non-empty-but-blank
+    instruction, so the fail-fast convention is preserved.
+    """
+    if cli_instruction:
+        return cli_instruction
+    return os.getenv("DN_INSTRUCTION", "").strip() or DEFAULT_INSTRUCTION
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
+    instruction = _resolve_instruction(args.instruction)
     print(
         "\nDragon Nest AI Agent\n"
         "Gunakan hanya di lingkungan yang diizinkan oleh Terms of Service game.\n"
@@ -31,11 +64,7 @@ def main() -> None:
         time.sleep(1)
 
     try:
-        run_dn_bot(
-            "Amati screenshot. Jika ada NPC yang jelas terlihat dan aman untuk "
-            "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
-            "Jika tujuan tidak jelas, jangan melakukan aksi.",
-        )
+        run_dn_bot(instruction)
     except (EmergencyStop, FocusLost) as error:
         log.warning("Sesi dihentikan: %s", error)
     except KeyboardInterrupt:

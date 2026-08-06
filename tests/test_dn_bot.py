@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import dn_bot
+import dn_bot.__main__
 from conftest import RecordingDevice, _sdk_response, _sdk_tool_call
 from PIL import Image
 
@@ -1184,6 +1185,68 @@ def test_preflight_accepts_valid_configuration():
         clear=True,
     ):
         dn_bot.preflight_configuration()
+
+
+def test_default_instruction_used_when_nothing_set():
+    with patch.dict(os.environ, {}, clear=True):
+        instruction = dn_bot.__main__._resolve_instruction(None)
+
+    assert instruction == dn_bot.config.DEFAULT_INSTRUCTION
+    # Byte-identical to the pre-T3 hardcoded text (no-args behavior unchanged).
+    assert instruction == (
+        "Amati screenshot. Jika ada NPC yang jelas terlihat dan aman untuk "
+        "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
+        "Jika tujuan tidak jelas, jangan melakukan aksi."
+    )
+
+
+def test_env_instruction_used_when_set():
+    with patch.dict(os.environ, {"DN_INSTRUCTION": "dekati merchant"}, clear=True):
+        instruction = dn_bot.__main__._resolve_instruction(None)
+
+    assert instruction == "dekati merchant"
+
+
+def test_cli_instruction_wins_over_env():
+    with patch.dict(os.environ, {"DN_INSTRUCTION": "env-text"}, clear=True):
+        instruction = dn_bot.__main__._resolve_instruction("cli-text")
+
+    assert instruction == "cli-text"
+
+
+def test_main_plumbs_cli_instruction_to_run_dn_bot():
+    with patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main(["--instruction", "cli-text"])
+
+    run.assert_called_once_with("cli-text")
+
+
+def test_main_plumbs_env_instruction_when_no_flag():
+    with patch.dict(
+        os.environ, {"DN_INSTRUCTION": "env-text"}, clear=True
+    ), patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main([])
+
+    run.assert_called_once_with("env-text")
+
+
+def test_main_uses_default_instruction_when_nothing_set():
+    with patch.dict(os.environ, {}, clear=True), patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main([])
+
+    run.assert_called_once_with(dn_bot.config.DEFAULT_INSTRUCTION)
 
 
 def test_new_session_id_is_unique_and_log_safe():

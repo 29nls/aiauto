@@ -38,6 +38,14 @@ API_ERROR_DETAIL_MAX = 500
 # Bounded so a hung request cannot hold the session for the SDK default (~600 s)
 # times API_MAX_ATTEMPTS without any emergency responsiveness in between.
 OPENROUTER_TIMEOUT_DEFAULT = 60
+# Default session goal, used when neither the CLI flag (--instruction) nor the
+# DN_INSTRUCTION env var is provided. Byte-identical to the pre-T3 hardcoded
+# text so no-args behavior is unchanged.
+DEFAULT_INSTRUCTION = (
+    "Amati screenshot. Jika ada NPC yang jelas terlihat dan aman untuk "
+    "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
+    "Jika tujuan tidak jelas, jangan melakukan aksi."
+)
 
 MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
 ACTION_KEYS = {

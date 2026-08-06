@@ -86,6 +86,8 @@ Jalankan dari **root proyek** (folder yang berisi `.env` dan paket `dn_bot/`): `
 
 Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown. Cek fokus jendela (`check_target_window`) juga bersifat **fail-closed di non-Windows**: menolak berjalan (bukan melewati cek diam-diam), termasuk untuk pemanggilan programatik yang tidak lewat preflight.
 
+Tujuan sesi dapat diatur lewat flag CLI `--instruction "<teks>"` atau env `DN_INSTRUCTION` di `.env` (flag CLI menang atas env). Jika keduanya tidak diatur, dipakai teks bawaan — sama persis dengan perilaku default sebelumnya.
+
 Script memberi waktu lima detik untuk memindahkan fokus ke jendela game. **Hak Administrator tidak selalu diperlukan dan tidak menjamin input akan diterima.** Jika client game berjalan dengan hak yang lebih tinggi daripada terminal, Windows dapat membatasi input lintas proses.
 
 Jika pengujian yang sah di komputer kamu memang membutuhkan terminal elevated, buka Command Prompt atau VS Code dengan klik kanan → **Run as Administrator**, lalu ulangi perintah di atas. Jangan menaikkan hak akses hanya untuk mengakali proteksi game.
@@ -148,7 +150,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
-│   ├── __main__.py    # Entrypoint CLI
+│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / DN_INSTRUCTION)
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
@@ -161,10 +163,16 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
 │   ├── test_dn_bot.py
 │   └── test_integration.py # Tes integration end-to-end loop (plan 016)
+├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
+│   └── tests.yml
+├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)
 ├── requirements.txt   # Dependency runtime Python (pin eksak = lock)
 ├── requirements-dev.txt # Dependency development + runtime untuk tes offline (pytest di atas -r requirements.txt)
 ├── pytest.ini         # Konfigurasi pytest (testpaths, pythonpath)
+├── CHANGELOG.md       # Riwayat perubahan (Keep a Changelog)
 ├── SECURITY.md        # Threat model, asumsi trust boundary, mitigasi, status temuan
+├── AGENTS.md          # Konvensi proyek untuk agen coding
+├── security_best_practices_report.md # Laporan audit keamanan awal (referensi read-only)
 ├── .env.example       # Template konfigurasi; tidak berisi secret
 ├── .gitignore         # Mengecualikan .env, virtualenv, dan cache
 └── README.md

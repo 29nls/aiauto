@@ -28,6 +28,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - `README.md`: usage `python -m dn_bot`, struktur file, section "Dependensi & lock", klausa working-directory, dan catatan `pytest.ini`.
 - `get_openrouter_client` kini memasang timeout bawaan 60 detik (env `OPENROUTER_TIMEOUT`, bilangan bulat positif dalam detik) pada client OpenRouter; request yang hang dibatasi dan diklasifikasi sebagai error jaringan (retryable) oleh loop retry, sehingga sesi tidak terkunci hingga batas default SDK (~600 s × 3 percobaan) tanpa responsivitas (temuan survey T1).
 - Retry backoff di `_call_openrouter` kini **responsif terhadap emergency**: jeda antar percobaan memakai `safety._safe_sleep` (interval ≤50 ms dengan cek pojok failsafe + fokus jendela tiap tick), jadi pengguna bisa menghentikan sesi di tengah backoff — `EmergencyStop`/`FocusLost` diteruskan keluar loop tanpa dibungkus menjadi error API (temuan survey T2).
+- Tujuan sesi kini dapat dikonfigurasi: env `DN_INSTRUCTION` atau flag CLI `--instruction` (stdlib argparse; precedence **CLI > env > `DEFAULT_INSTRUCTION`** di config.py). Perilaku no-args tetap byte-identical dengan teks bawaan sebelumnya (temuan survey T3).
 
 ### Removed
 

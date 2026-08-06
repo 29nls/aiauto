@@ -88,7 +88,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api._safe_sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
 - **Quirk env terverifikasi (Python 3.14.6/Windows, 2026-08-08)**: konstruksi client OpenAI **asli** (`OpenAI(...)`) di dalam pytest gagal dengan `ssl.SSLError: [SSL] unknown error (0xa080024)` ketika `from PIL import Image` sudah di-import DAN env di-wipe (`patch.dict(os.environ, ..., clear=True)`) — konstruksi sukses standalone maupun dengan `clear=False`. Jangan re-diagnosis: tes yang menyentuh `get_openrouter_client` memakai `patch.object(dn_bot.api, "OpenAI")` dan assert kwargs (`base_url`/`api_key`/`timeout`), bukan konstruksi client asli.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **98 tes**.
+- Jumlah target saat ini: **104 tes**.
 - `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
 - `test_integration_real_input_sequence_via_recorder` (plan 016 item 3): menjalankan `execute_game_action` **ASLI** dengan `RecordingDevice` — assert urutan input fisik (`move_camera` = anchor tengah → endpoint; `wait` = tanpa call device) dan frame yang dipakai tiap aksi; guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input.
 
@@ -96,6 +96,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - `.env` dimuat relatif cwd (`load_dotenv()` di `config.py`) → jalankan dari **root proyek**; dari folder lain gagal dengan `ImportError` atau preflight.
 - `preflight_configuration()` dijalankan **sebelum** countdown 5 detik: Windows, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `DN_WINDOW_TITLE`, variabel `DN_CAPTURE_*`/`DN_MONITOR`. `_int_env` memberi pesan jelas untuk nilai non-integer.
+- `DN_INSTRUCTION` (opsional) / flag CLI `--instruction`: tujuan sesi. Precedence: **flag CLI > env > `DEFAULT_INSTRUCTION`** (config.py, byte-identical dengan teks lama — perilaku no-args tidak berubah). Preflight tidak memvalidasinya (opsional, punya default); `run_dn_bot` tetap menolak instruction kosong (fail-fast).
 
 ## Dependensi & CI
 
@@ -110,7 +111,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
 - [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
-- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **98 passed** (membuktikan pin versi di lingkungan bersih).
+- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **104 passed** (membuktikan pin versi di lingkungan bersih).
 - [x] **Commit worktree** — seluruh working tree sesi ter-commit (`de000e9` + `cf1b011`..`e74bc21`, tanpa push).
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".
 - [x] **Kandidat arsitektur #1 (SELESAI — Frame module)**: global capture state (`_capture_region`/`_capture_geometry`) diganti `Frame` immutable eksplisit.

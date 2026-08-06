@@ -24,7 +24,7 @@
 
 1. `grep -c "==" requirements.txt` → 5; pastikan tidak ada `>=`/`~=` tersisa: `grep -nE ">=|~=" requirements.txt` → kosong.
 2. `pip freeze` di venv aktif → kelima versi persis cocok dengan pin.
-3. Jalankan `python -m pytest -q` → seluruh suite lolos (target 72; ekspektasi "60" di plan ini basi — suite tumbuh via 016 + unit recorder).
+3. Jalankan `python -m pytest -q` → seluruh suite lolos (target 117; ekspektasi "60"/"72" di plan ini basi — suite tumbuh via 016 + unit recorder + survey T1–T7).
 4. Baca README "Dependensi & lock" — tetap akurat terhadap file aktual.
 
 ## Verifikasi (machine-checkable)
@@ -32,7 +32,7 @@
 ```bash
 grep -cE "^[a-zA-Z_-]+==[0-9]" requirements.txt   # expect 5
 grep -nE ">=|~=|<" requirements.txt               # expect no output
-.venv/Scripts/python -m pytest -q                 # expect 72 passed (verified 2026-08-06)
+.venv/Scripts/python -m pytest -q                 # expect 117 passed (kini; reconcile 2026-08-06)
 ```
 
 ## Batas scope
@@ -42,7 +42,7 @@ grep -nE ">=|~=|<" requirements.txt               # expect no output
 
 ## Rencana tes
 
-Tidak ada tes baru (ini file dependensi, bukan kode). Regresi dijamin suite 60 tes yang berjalan di versi ter-pin.
+Tidak ada tes baru (ini file dependensi, bukan kode). Regresi dijamin suite 117 tes yang berjalan di versi ter-pin.
 
 ## Catatan pemeliharaan
 

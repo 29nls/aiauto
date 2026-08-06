@@ -22,11 +22,11 @@ Dua lapis penolakan: (1) `preflight_configuration` menolak platform non-Windows 
    grep -n "except" dn_bot/orchestrator.py dn_bot/api.py
    ```
    `(EmergencyStop, FocusLost): raise` harus ada di orchestrator; `_call_openrouter` tidak memanggil guard di blok retry.
-3. `python -m pytest -q` → 72 passed (termasuk 2 tes non-Windows; ekspektasi "60" basi).
+3. `python -m pytest -q` → 117 passed (termasuk 2 tes non-Windows).
 
 ## Verifikasi (machine-checkable)
 
-`grep "os.name != \"nt\""` muncul 2x (config preflight + safety check) dengan `raise` setelahnya; suite 72 passed (verified 2026-08-06).
+`grep "os.name != \"nt\""` muncul 2x (config preflight + safety check) dengan `raise` setelahnya; suite 117 passed (kini; reconcile 2026-08-06).
 
 ## Batas scope
 

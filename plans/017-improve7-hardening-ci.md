@@ -22,7 +22,7 @@
 - **Category**: security
 - **Planned at**: commit `89b6c5a`, 2026-08-06 (audit improve; workflow saat itu `actions/checkout@v4` + `@v5`, tanpa `permissions:`)
 - **Issue**: omit
-- **Executed**: 2026-08-06 — freshness upgrade selesai: `checkout` v4.2.1 → v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v5.6.0 → v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0; 62 tes lokal lolos saat itu (kini **83**); run CI GitHub final.
+- **Executed**: 2026-08-06 — freshness upgrade selesai: `checkout` v4.2.1 → v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v5.6.0 → v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0; 62 tes lokal lolos saat itu (kini **117**); run CI GitHub final. Dilanjutkan oleh survey T5 (2026-08-06): matrix Python 3.10/3.12/3.14, `timeout-minutes: 10`, `pip check`, pip cache — pin SHA + least-privilege tetap.
 
 ## Why this matters
 
@@ -53,7 +53,7 @@ v4.4.0+).
 | Resolve SHA | `git ls-remote https://github.com/actions/setup-python.git refs/tags/v7.0.0` | SHA 40-hex |
 | YAML lint  | `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/tests.yml` | exit 0, no findings |
 | YAML lint  | `npx -y yaml-lint .github/workflows/tests.yml` | "YAML Lint successful" |
-| Tests      | `.venv/Scripts/python -m pytest -q` | 83 passed (ekspektasi "62" basi) |
+| Tests      | `.venv/Scripts/python -m pytest -q` | 117 passed (kini) |
 
 ## Scope
 
@@ -106,7 +106,7 @@ Machine-checkable. ALL must hold:
 
 - [ ] `git ls-remote ... v7.0.1` / `v7.0.0` SHA persis cocok dengan pin baru
 - [ ] actionlint exit 0 + `yaml-lint` successful
-- [x] `.venv/Scripts/python -m pytest -q` → 83 passed (ekspektasi "60" basi)
+- [x] `.venv/Scripts/python -m pytest -q` → 117 passed (kini)
 - [ ] F-07 di SECURITY.md berstatus ✅ Fixed
 - [ ] `plans/README.md` status row 017 diupdate
 - [ ] Tidak ada file di luar in-scope yang berubah

@@ -21,7 +21,7 @@ Semua parsing integer env dipusatkan di `_int_env` yang fail-fast dengan pesan j
 
 1. `grep -n "int(os.getenv" dn_bot/ --include="*.py"` → kosong (semua lewat `_int_env`).
 2. Jalankan tes env: `python -m pytest -q tests/test_dn_bot.py -k "int_env or non_integer or empty_rect"` → semua pass.
-3. Suite penuh `python -m pytest -q` → 72 passed (ekspektasi "60" basi).
+3. Suite penuh `python -m pytest -q` → 117 passed.
 
 ## Verifikasi (machine-checkable)
 

@@ -19,11 +19,11 @@
 1. `grep -rn "_capture_region\|_capture_geometry" dn_bot/ --include="*.py"` → hanya nama fungsi `_capture_region_from_env` (bukan global).
 2. `grep -rn "_physical_point(" dn_bot/ --include="*.py"` → semua call site meneruskan `frame`.
 3. `grep -rn "global " dn_bot/ --include="*.py"` → tidak ada pernyataan `global` di modul package.
-4. `python -m pytest -q` → 72 passed (ekspektasi "60" basi).
+4. `python -m pytest -q` → 117 passed.
 
 ## Verifikasi (machine-checkable)
 
-Empat grep di atas bersih/konsisten; suite 72 passed (verified 2026-08-06).
+Empat grep di atas bersih/konsisten; suite 117 passed (kini; reconcile 2026-08-06).
 
 ## Batas scope
 

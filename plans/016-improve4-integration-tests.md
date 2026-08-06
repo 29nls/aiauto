@@ -39,13 +39,13 @@ tanpa butuh game/OpenRouter nyata.
   2. loop: `_compact_messages` → `_call_openrouter(client, model, messages)` → parse tool calls → `execute_game_action(..., frame=frame)` → `frame = capture_screen_base64()` → pesan user baru
 - `tests/test_dn_bot.py` — `test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls` (mock `capture_screen_base64` = `SimpleNamespace(encoded=...)`, mock `execute_game_action`), `test_run_dn_bot_stops_after_retries_without_running_actions`, `test_run_dn_bot_retried_call_runs_action_exactly_once`. Semua meng-mock `execute_game_action` — tidak ada tes yang mengeksekusi aksi nyata (lewat device/recorder).
 - `tests/conftest.py` — fixture `capture_region` membangun `Frame` (factory).
-- Konvensi: suite offline murni; pytest.ini `testpaths = tests`; 60 tes.
+- Konvensi: suite offline murni; pytest.ini `testpaths = tests`; 60 tes saat stamp (kini 117).
 
 ## Commands you will need
 
 | Purpose   | Command                  | Expected on success |
 |-----------|--------------------------|---------------------|
-| Tests     | `.venv/Scripts/python -m pytest -q` | 60 + N passed |
+| Tests     | `.venv/Scripts/python -m pytest -q` | 117 passed (kini; 60 + N era stamp) |
 | New file  | `grep -rn "integration" tests/` | file baru terdaftar |
 
 ## Scope
@@ -84,11 +84,11 @@ Fake `capture_screen_base64` mengembalikan `Frame` nyata (via fixture `capture_r
 Tulis (di `tests/test_integration.py`):
 1. **Alur penuh 2 langkah**: skrip `[wait, stop]` → assert: 2 request terkirim, `execute_game_action` dipanggil sekali dengan `frame` dari capture kedua (`frame.encoded` cocok), pesan user terakhir berisi frame baru, urutan role `user → assistant → tool → user` benar, pasangan `tool_call_id` benar.
 2. **Hanya satu aksi per siklus**: skrip mengembalikan 2 tool call dalam satu respons → aksi kedua ditolak (pesan tool "hanya satu aksi per screenshot") dan `execute_game_action` dipanggil sekali.
-3. **(Jika 015 selesai) aksi nyata via recorder**: ganti mock `execute_game_action` dengan device recorder → assert urutan input fisik untuk `move_camera`/`wait`. — **SELESAI 2026-08-06** setelah plan 012/015 (seam input device): tes ke-4 `test_integration_real_input_sequence_via_recorder` mengeksekusi `execute_game_action` ASLI dengan `RecordingDevice` (assert `[("moveTo", (512, 384)), ("moveTo", (800, 600))]` untuk `move_camera`, tanpa call untuk `wait`) + frame yang dipakai tiap aksi (`produced[0]` → `produced[1]`); guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input. Suite: **72 passed** saat itu; kini **83** setelah polesan parametrize `classify_api_error`.
+3. **(Jika 015 selesai) aksi nyata via recorder**: ganti mock `execute_game_action` dengan device recorder → assert urutan input fisik untuk `move_camera`/`wait`. — **SELESAI 2026-08-06** setelah plan 012/015 (seam input device): tes ke-4 `test_integration_real_input_sequence_via_recorder` mengeksekusi `execute_game_action` ASLI dengan `RecordingDevice` (assert `[("moveTo", (512, 384)), ("moveTo", (800, 600))]` untuk `move_camera`, tanpa call untuk `wait`) + frame yang dipakai tiap aksi (`produced[0]` → `produced[1]`); guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input. Suite: **72 passed** saat itu; kini **117** setelah polesan parametrize + survey T1–T7.
 
 Model setelah: `test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls` (pola assert pasangan `tool_call_id`).
 
-**Verify**: `.venv/Scripts/python -m pytest -q` → 60 + 3 passed.
+**Verify**: `.venv/Scripts/python -m pytest -q` → 117 passed (kini; 60 + 3 era stamp).
 
 ## Test plan
 
@@ -101,7 +101,7 @@ Model setelah: `test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls` (pol
 Machine-checkable. ALL must hold:
 
 - [ ] `tests/test_integration.py` ada dengan ≥ 3 tes
-- [ ] `.venv/Scripts/python -m pytest -q` → 60 + N passed (N ≥ 3)
+- [ ] `.venv/Scripts/python -m pytest -q` → 117 passed (kini; 60 + N era stamp, N ≥ 3)
 - [ ] `plans/README.md` status row 016 diupdate
 - [ ] Tidak ada file `dn_bot/` yang berubah (kecuali bug nyata dilaporkan ke owner)
 

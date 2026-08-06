@@ -1,7 +1,7 @@
 # Plan 011 — Kandidat #3: module kontrak wire-shape pesan (implement)
 
 - **Temuan:** Bentuk pesan OpenAI-compatible **tersebar** di beberapa modul: `_image_block` (capture.py), frame teks user (`orchestrator.py:96-99` dan `:198-203`), `assistant_message` + tool-calls dict (`orchestrator.py:128-142`), tool result (`orchestrator.py:186-194`), parser tool (`extract_tool_requests` di api.py). Tidak ada satu pemilik kontrak → perubahan wire-shape memaksa edit di banyak tempat + tes.
-- **Status:** ✅ **Done** (2026-08-06) — **Verified (reconcile 2026-08-06)**: `dn_bot/messages.py` memiliki semua wire-shape; grep role dict mentah di orchestrator/capture = 0; suite penuh **72 passed** (ekspektasi "67" basi).
+- **Status:** ✅ **Done** (2026-08-06) — **Verified (reconcile 2026-08-06)**: `dn_bot/messages.py` memiliki semua wire-shape; grep role dict mentah di orchestrator/capture = 0; suite penuh **72 passed** saat itu (kini **117**).
 
 ## Konteks
 
@@ -35,7 +35,7 @@ Prinsip: satu module (`dn_bot/messages.py` — atau `wire.py`/`contract.py`, pil
 ## Verifikasi (machine-checkable)
 
 ```bash
-python -m pytest -q                                       # 72 passed (verified 2026-08-06)
+python -m pytest -q                                       # 117 passed (kini; reconcile 2026-08-06)
 grep -rn '"role": "tool"\|"role": "user"' dn_bot/orchestrator.py dn_bot/capture.py | wc -l   # 0 di modul non-kontrak (semua lewat messages.py)
 ```
 

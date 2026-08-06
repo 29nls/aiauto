@@ -42,7 +42,7 @@ Output `git ls-remote` sama persis dengan SHA yang di-pin; actionlint exit 0 tan
 
 ## Rencana tes
 
-Suite 72 tes berjalan di CI sebagai verifikasi nyata; run lokal `python -m pytest -q` untuk regresi cepat (ekspektasi "60" basi).
+Suite 117 tes berjalan di CI sebagai verifikasi nyata; run lokal `python -m pytest -q` untuk regresi cepat.
 
 ## Catatan pemeliharaan
 

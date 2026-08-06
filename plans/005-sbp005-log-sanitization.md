@@ -21,11 +21,11 @@
 
 1. `grep -n "_sanitize_log_text(title_buffer" dn_bot/safety.py` → sanitasi terjadi sebelum interpolasi.
 2. Uji manual rentang C1 (8-bit CSI): `.venv/Scripts/python -c "import dn_bot; print(repr(dn_bot._sanitize_log_text('\x9b31mX')))"` → tidak ada `\x9b`/`\x1b`.
-3. `python -m pytest -q` → 72 passed (termasuk 2 tes sanitasi; ekspektasi "60" basi).
+3. `python -m pytest -q` → 117 passed (termasuk 2 tes sanitasi).
 
 ## Verifikasi (machine-checkable)
 
-Contoh di atas mencetak string tanpa karakter kontrol; suite 72 passed (verified 2026-08-06).
+Contoh di atas mencetak string tanpa karakter kontrol; suite 117 passed (kini; reconcile 2026-08-06).
 
 ## Batas scope
 

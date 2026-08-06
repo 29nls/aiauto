@@ -1,7 +1,7 @@
 # Plan 008 — F-07: upgrade versi actions CI (implement)
 
 - **Temuan:** Pin SHA/patch lama tidak menerima backport keamanan otomatis; `checkout` v4.2.1 dan `setup-python` v5.6.0 ketinggalan. Low (tidak mendesak — trigger tanpa `pull_request_target` tidak terpapar kelas pwn-request).
-- **Status:** ✅ **Fixed** (2026-08-06). Upgrade selesai: `checkout` v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0, 62 tes lokal lolos. Verifikasi final: run CI GitHub.
+- **Status:** ✅ **Fixed** (2026-08-06). Upgrade selesai: `checkout` v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0, 62 tes lokal lolos saat itu (kini 117). Verifikasi final: run CI GitHub.
 
 ## Konteks
 
@@ -28,13 +28,15 @@ Enforcement keamanan pwn-request checkout (github.blog, 2026-06-18) masuk v4.4.0
    ```
 3. Jangan mengubah `python-version: "3.12"` atau langkah lain.
 
+> **Drift (disengaja, survey T5, 2026-08-06):** instruksi ini basi — sejak T5 workflow memakai matrix Python **3.10/3.12/3.14** (`fail-fast: false`) + `timeout-minutes: 10` + step `pip check` + pip cache (`setup-python` `cache: pip`), sambil mempertahankan pin SHA + `permissions: contents: read` (basis F-04/F-07/plan 017). Jangan kembalikan ke single-version.
+
 ## Verifikasi (machine-checkable)
 
 ```bash
 go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/tests.yml   # exit 0 ✓ (terverifikasi)
 npx -y yaml-lint .github/workflows/tests.yml                                            # lint successful ✓ (terverifikasi)
 git ls-remote https://github.com/actions/checkout.git refs/tags/v7.0.1 | grep <SHA-pin> # cocok ✓
-.venv/Scripts/python -m pytest -q                                                       # 62 passed ✓
+.venv/Scripts/python -m pytest -q                                                       # 117 passed ✓
 ```
 Run CI di GitHub adalah verifikasi final (major bump tak terverifikasi lokal).
 
@@ -46,7 +48,7 @@ Run CI di GitHub adalah verifikasi final (major bump tak terverifikasi lokal).
 
 ## Rencana tes
 
-Suite 62 tes tidak berubah; verifikasi di CI. Jika major bump v7 mengubah perilaku setup-python (mis. cache default), amati run CI pertama.
+Suite 62 tes tidak berubah saat itu (kini 117); verifikasi di CI. Jika major bump v7 mengubah perilaku setup-python (mis. cache default), amati run CI pertama.
 
 ## Catatan pemeliharaan
 

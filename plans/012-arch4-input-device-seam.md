@@ -33,7 +33,7 @@ Sebuah seam nyata: `DeviceInput` protocol dengan metode primitif; produksi memak
 ## Verifikasi (machine-checkable)
 
 ```bash
-python -m pytest -q                                            # 60 passed (tes aksi pakai recorder)
+python -m pytest -q                                            # 117 passed (kini; 60 era app_dn.py — tes aksi pakai recorder)
 grep -rn "pydirectinput" dn_bot/input_control.py               # hanya di adapter PyDirectInputDevice (0-1 call site)
 ```
 

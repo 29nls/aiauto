@@ -44,7 +44,7 @@ tes meng-assert urutan input secara natural.
 
 | Purpose   | Command                  | Expected on success |
 |-----------|--------------------------|---------------------|
-| Tests     | `.venv/Scripts/python -m pytest -q` | 60 passed |
+| Tests     | `.venv/Scripts/python -m pytest -q` | 117 passed (kini; 60 era app_dn.py) |
 | Grep      | `grep -rn "pydirectinput" dn_bot/ --include="*.py"` | hanya di adapter |
 
 ## Scope
@@ -108,7 +108,7 @@ class PyDirectInputDevice:
 - `tests/device_recorder.py` (atau di dalam test file): mencatat `(method, args)` dan menyediakan `assert_calls(...)`.
 - Ganti `patch.object(...pydirectinput...)` dengan konstruksi device recorder + assert urutan, mis. untuk move_camera: `[("moveTo", (512, 384)), ("moveTo", (800, 600))]`.
 
-**Verify**: `.venv/Scripts/python -m pytest -q` → 60 passed (5 tes aksi sekarang memakai recorder).
+**Verify**: `.venv/Scripts/python -m pytest -q` → 117 passed (5 tes aksi memakai recorder; 60 era app_dn.py).
 
 ## Test plan
 
@@ -122,7 +122,7 @@ Machine-checkable. ALL must hold:
 
 - [x] `grep -rn "pydirectinput" dn_bot/input_control.py` → 0 match
 - [x] `grep -rn "pydirectinput" dn_bot/safety.py` → 0 match (FAILSAFE/PAUSE + semua call pindah ke `device.py`; position lewat device)
-- [x] `.venv/Scripts/python -m pytest -q` → **71 passed** saat eksekusi (60 di plan adalah angka era `app_dn.py`; suite aktual 70 + 1 unit `RecordingDevice`); kini **83** setelah polesan parametrize `classify_api_error`
+- [x] `.venv/Scripts/python -m pytest -q` → **71 passed** saat eksekusi (60 di plan adalah angka era `app_dn.py`; suite aktual 70 + 1 unit `RecordingDevice`); kini **83** setelah polesan parametrize `classify_api_error`; kini **117** setelah survey T1–T7
 - [x] `plans/README.md` status row 015 diupdate
 - [x] Tidak ada file di luar in-scope yang berubah (`device.py` baru; `input_control.py`, `safety.py`, `tests/`; + sinkronisasi dokumen AGENTS/CHANGELOG/README)
 

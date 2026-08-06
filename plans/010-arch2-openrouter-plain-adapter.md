@@ -1,7 +1,7 @@
 # Plan 010 — Kandidat #2: adapter OpenRouter hasil model polos (implement)
 
 - **Temuan:** `_call_openrouter` mengembalikan **object SDK mentah** (`openai` response); `run_dn_bot` lalu mengakses `response.choices[0].message` + `extract_tool_requests` — boundary api.py bocor ke orchestrator, tes harus meniru bentuk SDK (`_FakeAPIError`, `_fake_client`), dan wire-shape respon tidak dimiliki oleh satu tempat.
-- **Status:** ✅ **Done** (2026-08-06) — **Verified (reconcile 2026-08-06)**: 0 `response.choices`/`.tool_calls` di orchestrator; `_call_openrouter` → `ModelReply`, parse di luar retry; suite penuh **72 passed** (ekspektasi "67" basi — suite tumbuh via seam + integration).
+- **Status:** ✅ **Done** (2026-08-06) — **Verified (reconcile 2026-08-06)**: 0 `response.choices`/`.tool_calls` di orchestrator; `_call_openrouter` → `ModelReply`, parse di luar retry; suite penuh **72 passed** saat itu (kini **117** — tumbuh via seam + integration + survey T1–T7).
 
 ## Konteks
 
@@ -31,7 +31,7 @@ Goal: `_call_openrouter` mengembalikan data polos (tool requests + teks), bukan 
 ## Verifikasi (machine-checkable)
 
 ```bash
-python -m pytest -q                                                       # 72 passed (verified 2026-08-06)
+python -m pytest -q                                                       # 117 passed (kini; reconcile 2026-08-06)
 grep -rn "response.choices\|\.choices\[0\]" dn_bot/orchestrator.py        # kosong
 ```
 

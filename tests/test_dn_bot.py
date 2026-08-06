@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, call, patch
 
 import dn_bot
 import dn_bot.__main__
@@ -1031,6 +1031,7 @@ def test_run_dn_bot_retried_call_runs_action_exactly_once():
         text=None,
         duration=dn_bot.MOVE_DURATION,
         frame=frame,
+        device=ANY,
     )
 
 
@@ -1351,6 +1352,102 @@ def test_main_uses_default_instruction_when_nothing_set():
     run.assert_called_once_with(dn_bot.config.DEFAULT_INSTRUCTION)
 
 
+def test_dry_run_device_logs_intended_actions_without_executing():
+    """DryRunDevice logs every intended physical primitive (prefix [dry-run])
+    and records it in ``calls`` — nothing is performed."""
+    with patch.object(dn_bot.device.log, "info") as log_info:
+        device = dn_bot.DryRunDevice()
+        device.moveTo(10, 20)
+        device.keyDown("w")
+        device.keyUp("w")
+        device.click()
+        device.rightClick()
+
+    # Each primitive logs the intended call (format string + args) — the
+    # operator sees exactly what would have been performed.
+    assert log_info.call_args_list == [
+        call("[dry-run] moveTo(%d, %d)", 10, 20),
+        call("[dry-run] keyDown(%s)", "w"),
+        call("[dry-run] keyUp(%s)", "w"),
+        call("[dry-run] click()"),
+        call("[dry-run] rightClick()"),
+    ]
+    assert device.calls == [
+        ("moveTo", (10, 20)),
+        ("keyDown", ("w",)),
+        ("keyUp", ("w",)),
+        ("click", ()),
+        ("rightClick", ()),
+    ]
+
+
+def test_dry_run_device_position_never_triggers_emergency_stop():
+    """The dry-run cursor is a fixed safe coordinate, so real emergency-stop
+    checks pass trivially during a rehearsal (no physical cursor can hit the
+    failsafe corner; Ctrl+C remains the abort)."""
+    device = dn_bot.DryRunDevice()
+    assert device.position() == dn_bot.DryRunDevice.SAFE_POSITION
+    dn_bot.check_emergency_stop(device)  # must not raise
+
+
+def test_parse_args_accepts_dry_run_flag():
+    assert dn_bot.__main__._parse_args(["--dry-run"]).dry_run is True
+    assert dn_bot.__main__._parse_args([]).dry_run is False
+    args = dn_bot.__main__._parse_args(["--dry-run", "--instruction", "x"])
+    assert args.dry_run is True and args.instruction == "x"
+
+
+def test_main_dry_run_flag_propagates_dry_run_device():
+    """The --dry-run flag makes main() select the rehearsal device, so the
+    session path receives a DryRunDevice instead of the production adapter."""
+    with patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main(["--dry-run"])
+
+    run.assert_called_once()
+    assert isinstance(run.call_args.kwargs["device"], dn_bot.DryRunDevice)
+
+
+def test_run_dn_bot_default_session_uses_production_device():
+    """Non-dry-run default: the session threads the production adapter through
+    both the emergency guard and the action — byte-identical behavior."""
+    frame = SimpleNamespace(encoded="frame")
+    replies = iter(
+        [
+            dn_bot.ModelReply(
+                text="",
+                tool_requests=[
+                    dn_bot.ToolRequest(id="call-1", input={"action": "wait"})
+                ],
+            ),
+            dn_bot.ModelReply(text="selesai", tool_requests=[]),
+        ]
+    )
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openrouter",
+        side_effect=lambda *args, **kwargs: next(replies),
+    ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
+        dn_bot.orchestrator, "check_emergency_stop"
+    ) as emergency:
+        dn_bot.run_dn_bot("go", max_steps=2)
+
+    device = execute.call_args.kwargs["device"]
+    assert isinstance(device, dn_bot.PyDirectInputDevice)
+    # The same injected device is threaded through the emergency guard
+    # (passed positionally, like the safety helpers do).
+    assert emergency.call_args.args[0] is device
+
+
 def test_new_session_id_is_unique_and_log_safe():
     first = dn_bot._new_session_id()
     second = dn_bot._new_session_id()
@@ -1518,6 +1615,7 @@ def test_run_dn_bot_consumes_plain_model_reply():
         text=None,
         duration=dn_bot.MOVE_DURATION,
         frame=frame,
+        device=ANY,
     )
 
 

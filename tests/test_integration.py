@@ -19,7 +19,7 @@ dengan encoded unik per panggilan, sehingga kontrak antar lapisan
 
 import os
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import ANY, call, patch
 
 import dn_bot
 from conftest import RecordingDevice, _sdk_response, _sdk_tool_call
@@ -96,6 +96,7 @@ def test_integration_full_loop_two_steps(capture_region):
         text=None,
         duration=dn_bot.MOVE_DURATION,
         frame=produced[0],
+        device=ANY,
     )
     # Request pertama berisi frame awal di pesan user terakhirnya
     assert requests[0]["messages"][2]["content"][1]["image_url"]["url"].endswith(
@@ -186,6 +187,7 @@ def test_integration_next_cycle_acts_on_fresh_frame(capture_region):
                 text=None,
                 duration=dn_bot.MOVE_DURATION,
                 frame=produced[0],
+                device=ANY,
             ),
             call(
                 action="wait",
@@ -193,6 +195,7 @@ def test_integration_next_cycle_acts_on_fresh_frame(capture_region):
                 text=None,
                 duration=dn_bot.MOVE_DURATION,
                 frame=produced[1],
+                device=ANY,
             ),
         ]
     )
@@ -260,6 +263,86 @@ def test_integration_real_input_sequence_via_recorder(capture_region):
     # segar setelah capture ulang (bukan frame basi).
     assert frames_used == [produced[0], produced[1]]
     # 3 request model (move_camera, wait, stop); frame terbaru di pesan user akhir.
+    assert len(requests) == 3
+    assert requests[2]["messages"][-1]["content"][1]["image_url"]["url"].endswith(
+        "frame-3"
+    )
+
+
+def test_integration_dry_run_records_actions_without_physical_input(capture_region):
+    """Mode --dry-run: loop penuh (capture -> model -> aksi -> frame baru)
+    berjalan melawan ``DryRunDevice`` yang merekam/meng-log urutan input yang
+    dimaksud, dan adapter produksi ``pydirectinput`` TIDAK pernah dipanggil.
+
+    Guard keselamatan emergency (``check_emergency_stop``) sengaja TIDAK
+    di-patch: ia berjalan asli terhadap device dry-run (posisi kursor tetap di
+    koordinat aman) dan lolos — bukti bahwa cek emergency berperilaku wajar
+    dalam mode latihan. Hanya fokus jendela dan sleep yang di-patch (tidak ada
+    game terfokus di CI), sama seperti tes recorder yang sudah ada.
+    """
+    client, requests = _scripted_client(
+        [
+            _sdk_response(
+                tool_calls=[
+                    _sdk_tool_call(
+                        "call-1",
+                        '{"action": "move_camera", "coordinate": [800, 600]}',
+                    )
+                ]
+            ),
+            _sdk_response(
+                tool_calls=[
+                    _sdk_tool_call(
+                        "call-2",
+                        '{"action": "left_click", "coordinate": [512, 384]}',
+                    )
+                ]
+            ),
+            _sdk_response(content="selesai"),
+        ]
+    )
+    fake_capture, _ = _fake_capture(capture_region, _REGION)
+    device = dn_bot.DryRunDevice()
+
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(
+        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
+    ), patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control, "_safe_sleep"
+    ), patch.object(dn_bot.device.pydirectinput, "moveTo") as real_move, patch.object(
+        dn_bot.device.pydirectinput, "click"
+    ) as real_click, patch.object(
+        dn_bot.device.pydirectinput, "rightClick"
+    ) as real_right, patch.object(
+        dn_bot.device.pydirectinput, "keyDown"
+    ) as real_down, patch.object(
+        dn_bot.device.pydirectinput, "keyUp"
+    ) as real_up:
+        dn_bot.run_dn_bot("rehearsal", max_steps=3, device=device)
+
+    # Urutan input fisik yang dimaksud (pembacaan posisi dari cek keselamatan
+    # disaring): move_camera = anchor tengah lalu endpoint absolut; left_click
+    # = moveTo lalu click.
+    physical = [entry for entry in device.calls if entry[0] != "position"]
+    assert physical == [
+        ("moveTo", (512, 384)),
+        ("moveTo", (800, 600)),
+        ("moveTo", (512, 384)),
+        ("click", ()),
+    ]
+    # Adapter produksi tidak pernah dipanggil di seluruh sesi.
+    real_move.assert_not_called()
+    real_click.assert_not_called()
+    real_right.assert_not_called()
+    real_down.assert_not_called()
+    real_up.assert_not_called()
+    # Loop berjalan penuh: 3 request (move_camera, left_click, stop) dan frame
+    # segar sampai di request terakhir.
     assert len(requests) == 3
     assert requests[2]["messages"][-1]["content"][1]["image_url"]["url"].endswith(
         "frame-3"

@@ -17,6 +17,7 @@ from .config import (
     FocusLost,
     log,
 )
+from .device import DeviceInput, PyDirectInputDevice
 from .input_control import execute_game_action
 from .messages import (
     assistant_message,
@@ -72,8 +73,20 @@ def _new_session_id() -> str:
     return f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
-def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None:
-    """Run a bounded screenshot -> OpenRouter -> validated action loop."""
+def run_dn_bot(
+    instruction: str,
+    max_steps: int = MAX_STEPS_PER_SESSION,
+    device: DeviceInput = PyDirectInputDevice(),
+) -> None:
+    """Run a bounded screenshot -> OpenRouter -> validated action loop.
+
+    ``device`` is the input seam, defaulting to the production adapter so
+    non-dry-run behavior is byte-identical; it is threaded through the
+    emergency/focus guards and every action so the whole session stays on the
+    injected seam. Passing a ``DryRunDevice`` (flag ``--dry-run``) rehearses
+    the loop with zero physical input: actions are validated, mapped, and
+    logged by the device instead of executed.
+    """
     if not isinstance(instruction, str) or not instruction.strip():
         raise ValueError("Instruction harus berupa teks yang tidak kosong.")
     if (
@@ -103,7 +116,7 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
 
     for step in range(1, max_steps + 1):
         step_started = time.monotonic()
-        check_emergency_stop()
+        check_emergency_stop(device)
         log.info("Langkah %s/%s (session=%s)", step, max_steps, session_id)
         messages = _compact_messages(messages)
 
@@ -160,6 +173,7 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
                         text=request.input.get("text"),
                         duration=request.input.get("duration", MOVE_DURATION),
                         frame=frame,
+                        device=device,
                     )
                     result = f"Aksi {action!r} berhasil dijalankan."
                     log.info("Aksi: %s", action)

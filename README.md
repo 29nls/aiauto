@@ -95,6 +95,16 @@ Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: mema
 
 Tujuan sesi dapat diatur lewat flag CLI `--instruction "<teks>"` atau env `DN_INSTRUCTION` di `.env` (flag CLI menang atas env). Jika keduanya tidak diatur, dipakai teks bawaan — sama persis dengan perilaku default sebelumnya.
 
+### Mode latihan (`--dry-run`)
+
+Untuk melatih (rehearsal) loop penuh **tanpa input fisik apa pun**, jalankan dengan flag `--dry-run`:
+
+```bat
+python -m dn_bot --dry-run
+```
+
+Mode ini menjalankan siklus capture → model → aksi → frame baru persis seperti sesi normal, tetapi aksi fisik yang dimaksud **hanya di-log dan tidak pernah dieksekusi**: setiap primitif input dicatat dengan prefix `[dry-run]` (mis. `[dry-run] moveTo(512, 384)`, `[dry-run] keyDown(f)`), sehingga cursor dan tombol tidak tersentuh sama sekali. Pemeriksaan keselamatan tetap berperilaku wajar: cek emergency stop tetap berjalan tetapi membaca posisi kursor yang disimulasikan aman (kursor tidak pernah digerakkan bot, jadi tidak pernah memicu abort — `Ctrl+C` tetap menghentikan sesi), dan cek fokus jendela (`DN_WINDOW_TITLE`) tetap berlaku. Kombinasikan dengan `--instruction "<teks>"` untuk menguji tujuan berbeda.
+
 Script memberi waktu lima detik untuk memindahkan fokus ke jendela game. **Hak Administrator tidak selalu diperlukan dan tidak menjamin input akan diterima.** Jika client game berjalan dengan hak yang lebih tinggi daripada terminal, Windows dapat membatasi input lintas proses.
 
 Jika pengujian yang sah di komputer kamu memang membutuhkan terminal elevated, buka Command Prompt atau VS Code dengan klik kanan → **Run as Administrator**, lalu ulangi perintah di atas. Jangan menaikkan hak akses hanya untuk mengakali proteksi game.
@@ -130,7 +140,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
 - `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari anchor tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
-- Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes — mengganti library input (atau mode dry-run) cukup mengimplementasikan protocol baru, tanpa menyentuh logika aksi.
+- Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes, dan `DryRunDevice` untuk mode latihan `--dry-run` (meng-log aksi yang dimaksud tanpa mengeksekusinya) — mengganti library input cukup mengimplementasikan protocol baru, tanpa menyentuh logika aksi.
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
@@ -157,12 +167,12 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
-│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / DN_INSTRUCTION)
+│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / DN_INSTRUCTION / --dry-run)
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
 │   ├── messages.py    # Kontrak wire-shape pesan OpenAI-compatible
-│   ├── device.py      # Seam input device (protocol + adapter pydirectinput)
+│   ├── device.py      # Seam input device (protocol + adapter pydirectinput + DryRunDevice)
 │   ├── input_control.py # Aksi fisik tervalidasi (via device seam)
 │   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
 │   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks

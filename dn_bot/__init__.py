@@ -13,6 +13,7 @@ from . import (
     api,
     capture,
     config,
+    device,
     input_control,
     messages,
     orchestrator,
@@ -69,6 +70,7 @@ from .config import (
     log,
     preflight_configuration,
 )
+from .device import DeviceInput, DryRunDevice, PyDirectInputDevice
 from .input_control import _press_key, _validate_key, execute_game_action
 from .orchestrator import _compact_messages, _new_session_id, run_dn_bot
 from .safety import (
@@ -83,6 +85,7 @@ __all__ = [
     "api",
     "capture",
     "config",
+    "device",
     "input_control",
     "messages",
     "orchestrator",
@@ -128,6 +131,10 @@ __all__ = [
     "_sanitize_log_text",
     "check_emergency_stop",
     "check_target_window",
+    # Device seam
+    "DeviceInput",
+    "DryRunDevice",
+    "PyDirectInputDevice",
     # Input
     "_press_key",
     "_validate_key",

@@ -14,6 +14,7 @@ from .config import (
     log,
     preflight_configuration,
 )
+from .device import DryRunDevice
 from .orchestrator import run_dn_bot
 
 
@@ -28,6 +29,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Tujuan sesi. Precedence: flag ini > env DN_INSTRUCTION > teks "
             "bawaan (DEFAULT_INSTRUCTION)."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Mode latihan (rehearsal): jalankan loop penuh (capture -> model -> "
+            "aksi -> frame baru) tetapi aksi fisik yang dimaksud hanya di-log "
+            "(prefix [dry-run]) dan TIDAK pernah dieksekusi."
         ),
     )
     return parser.parse_args(argv)
@@ -53,6 +63,11 @@ def main(argv: list[str] | None = None) -> None:
         "Gunakan hanya di lingkungan yang diizinkan oleh Terms of Service game.\n"
         "Emergency stop: gerakkan kursor ke pojok kiri atas atau tekan Ctrl+C.\n"
     )
+    if args.dry_run:
+        print(
+            "MODE DRY-RUN: loop penuh dijalankan tetapi aksi fisik TIDAK akan "
+            "dieksekusi — primitif input yang dimaksud hanya di-log ([dry-run]).\n"
+        )
     try:
         preflight_configuration()
     except (RuntimeError, ValueError) as error:
@@ -64,7 +79,13 @@ def main(argv: list[str] | None = None) -> None:
         time.sleep(1)
 
     try:
-        run_dn_bot(instruction)
+        if args.dry_run:
+            # Rehearsal: same session path, but the injected device logs the
+            # intended physical actions instead of performing them.
+            run_dn_bot(instruction, device=DryRunDevice())
+        else:
+            # Byte-identical no-args path: production adapter is the default.
+            run_dn_bot(instruction)
     except (EmergencyStop, FocusLost) as error:
         log.warning("Sesi dihentikan: %s", error)
     except KeyboardInterrupt:

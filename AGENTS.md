@@ -9,7 +9,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Arsitektur & struktur
 
 - Package `dn_bot/` (bukan script tunggal); entrypoint `python -m dn_bot` (`dn_bot/__main__.py`).
-- DAG import **bebas-cycle**: `config` (tanpa dependensi internal) dan `messages` (hanya stdlib `json`/`typing`) ← semua; `safety` ← `config`; `capture` ← (config, safety); `api` ← (config, messages); `input_control` ← (safety, capture); `orchestrator` ← semua (top-level loop). Setiap modul memakai `from __future__ import annotations`.
+- DAG import **bebas-cycle**: `config` (tanpa dependensi internal), `messages` (hanya stdlib `json`/`typing`), dan `device` (hanya `pydirectinput`) ← semua; `safety` ← (config, device); `capture` ← (config, safety); `api` ← (config, messages, safety — untuk `_sanitize_log_text` pada input model/error SDK); `input_control` ← (device, safety, capture); `orchestrator` ← semua (top-level loop). Setiap modul memakai `from __future__ import annotations`.
 - `dn_bot/__init__.py` re-export API publik; `dn_bot.capture.*` adalah satu-satunya tempat patch global capture (lihat "Global state capture").
 - Tes di `tests/` (pytest), konfigurasi di `pytest.ini` (`testpaths = tests`, `pythonpath = .`) → jalankan `python -m pytest` dari root proyek.
 - Konstanta module-level di `config.py` (TARGET 1024×768, MAX_STEPS 10, MAX_CONTEXT_MESSAGES 8, dll). Jangan hardcode di modul lain.
@@ -27,19 +27,19 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 ## Pola keselamatan (terverifikasi)
 
-- **`check_emergency_stop()`** — failsafe pojok kiri atas (0–5 px); dipanggil sebelum tiap aksi dan setiap tick `_safe_sleep`. Jangan pernah menonaktifkan `pydirectinput.FAILSAFE`.
+- **`check_emergency_stop(device=...)`** — failsafe pojok kiri atas (0–5 px) via `device.position()`; dipanggil sebelum tiap aksi dan setiap tick `_safe_sleep`. Jangan pernah menonaktifkan `pydirectinput.FAILSAFE` (diatur di `device.py`).
 - **`check_target_window()`** — **fail-closed di non-Windows**: `raise FocusLost` (bukan return diam-diam), termasuk untuk pemanggilan programatik tanpa preflight. Perbandingan pakai `casefold`; judul window di-`_sanitize_log_text` **sebelum** interpolasi ke pesan yang di-log.
-- **`_safe_sleep(seconds)`** — tidur dalam interval ≤50 ms sambil re-check `check_emergency_stop` + `check_target_window` tiap tick agar sesi responsif terhadap interupsi.
+- **`_safe_sleep(seconds, device=...)`** — tidur dalam interval ≤50 ms sambil re-check `check_emergency_stop(device)` + `check_target_window` tiap tick agar sesi responsif terhadap interupsi.
 - **Pola kompensasi `try/finally` `_press_key`** (WAJIB dipertahankan — `input_control.py`):
 
   ```python
-  def _press_key(key: str, duration: float) -> None:
+  def _press_key(key: str, duration: float, device: DeviceInput) -> None:
       """Always release a key, including when the action is interrupted."""
-      pydirectinput.keyDown(key)
+      device.keyDown(key)
       try:
-          _safe_sleep(duration)
+          _safe_sleep(duration, device=device)
       finally:
-          pydirectinput.keyUp(key)
+          device.keyUp(key)
   ```
 
   - `keyUp` **dijamin** berjalan meski `_safe_sleep` melempar (`EmergencyStop`/`FocusLost` saat sleep) — key fisik tidak pernah tertahan.
@@ -75,13 +75,21 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - Fixture `capture_region` di `tests/conftest.py` adalah **factory murni** (membangun `Frame` dari region; tidak ada yang di-patch lagi).
 - Jangan menghidupkan kembali global mutable untuk capture — state bersama apa pun harus diteruskan eksplisit.
 
+## Seam input device (`device.py`)
+
+- `DeviceInput` protocol + `PyDirectInputDevice` adapter = **satu-satunya** tempat `pydirectinput` (import, `FAILSAFE`/`PAUSE`, dan semua call) — guard via grep.
+- DI dengan default produksi: `execute_game_action(..., *, frame, device=PyDirectInputDevice())`, `check_emergency_stop(device=...)`, `_safe_sleep(seconds, device=...)`. Device yang di-inject di-thread ke **seluruh guard jalur aksi** (emergency stop + sleep), jadi tes tidak pernah menyentuh library asli.
+- Tes memakai `RecordingDevice` (di `tests/conftest.py`): merekam `(method, args)` dan `assert_calls(...)` — urutan input di-assert langsung tanpa patch namespace; posisi cursor disuntik via `set_position`.
+- Jangan memanggil `pydirectinput` langsung di luar adapter. Penggantian library input = implementasi protocol baru, tanpa menyentuh logika aksi.
+
 ## Konvensi tes
 
 - Suite offline murni: tanpa game, tanpa mouse fisik, tanpa OpenRouter. `_FakeAPIError`/`_FakeTimeoutError`/`_fake_client` menyimulasikan SDK.
-- **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.input_control.pydirectinput`, `dn_bot.api.time.sleep`), bukan modul definisi.
+- **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api.time.sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **70 tes**.
+- Jumlah target saat ini: **88 tes**.
 - `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
+- `test_integration_real_input_sequence_via_recorder` (plan 016 item 3): menjalankan `execute_game_action` **ASLI** dengan `RecordingDevice` — assert urutan input fisik (`move_camera` = anchor tengah → endpoint; `wait` = tanpa call device) dan frame yang dipakai tiap aksi; guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input.
 
 ## Env & config
 
@@ -101,14 +109,20 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
 - [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
-- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **67 passed** (membuktikan pin versi di lingkungan bersih).
-- [ ] **Commit worktree** — package restructure + pytest idiom + SECURITY/README/CHANGELOG/AGENTS belum di-commit.
+- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **83 passed** (membuktikan pin versi di lingkungan bersih).
+- [x] **Commit worktree** — seluruh working tree sesi ter-commit (`de000e9` + commit sebelumnya), tanpa push.
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".
 - [x] **Kandidat arsitektur #1 (SELESAI — Frame module)**: global capture state (`_capture_region`/`_capture_geometry`) diganti `Frame` immutable eksplisit.
 - [x] **Kandidat arsitektur #2 (SELESAI — adapter polos)**: `_call_openrouter` mengembalikan `ModelReply` (teks + `list[ToolRequest]`), parsing SDK hanya di `api.py`; orchestrator tidak menyentuh object SDK.
 - [x] **Kandidat arsitektur #3 (SELESAI — kontrak wire-shape)**: `dn_bot/messages.py` memiliki semua bentuk pesan; tidak ada dict mentah di orchestrator/capture.
-- [ ] **Kandidat arsitektur #4 (dari grilling, tersisa)**: Seam input device nyata — adapter `pydirectinput` di produksi, recorder in-memory di tes.
-- [ ] **Polesan tes opsional** — parametrize `test_classify_api_error_kinds` (12 kasus status→kind); CI cukup `python -m pytest -q` (testpaths sudah di `pytest.ini`).
+- [x] **Kandidat arsitektur #4 (SELESAI — seam input device)**: `dn_bot/device.py` (`DeviceInput` protocol + `PyDirectInputDevice` adapter) — `pydirectinput` hanya di sana (guard grep); tes memakai `RecordingDevice` (assert urutan `(method, args)`); `check_emergency_stop`/`_safe_sleep` terima device (DI, default produksi); suite **83 tes**.
+- [x] **Promosi skill `python-error-handling` TERVERIFIKASI (2026-08-06)** — item 11 (verifikasi hierarki exception sebelum helper domain-raising di dalam broad `except Exception`) dan item 12 (retry hanya panggilan bebas efek samping; eksekusi efek sekali di luar loop retry) dikonfirmasi **terbaca** (file skill, baris ~194/~216) dan **memengaruhi perilaku** via demo basher: (a) helper `EmergencyStop` di dalam `try` milik `except Exception` → tertelan & salah diklasifikasi 2×; di luar blok → propagasi ke handler yang tepat; (b) efek samping di dalam loop retry → dieksekusi **3×** (duplikat saat retry); di luar loop → **1×**. Catatan jujur: spawn agent reasoning tidak mengeksekusi task dummy (berperan reviewer), jadi validasi dijalankan via read_files + basher — bukti terbaca (isi file) + bukti perilaku (output demo mekanis).
+- [x] **Promosi skill `python-design-patterns` TERVERIFIKASI (2026-08-06)** — item 11 (adapter boundary: object SDK tidak boleh bocor melewati modul pembungkus; boundary lewat tipe polos sehingga caller testable dengan fake yang tak punya bentuk SDK) dan item 12 (satu pemilik wire-shape: dict yang menyeberang boundary dikonstruksi hanya via builder di satu modul; membaca role untuk bookkeeping itu wajar — yang satu tempat adalah *construction*) dikonfirmasi **terbaca** (file skill verbatim) dan **memengaruhi perilaku** via demo basher (exit 0): item 11 — caller yang mem-fake bentuk SDK (`SDKResponse.transaction`) lolos namun **PECAH** dengan fake tanpa bentuk SDK (`AttributeError: 'str' object has no attribute 'transaction'`), sedangkan versi GOOD mem-fake adapter → `PaymentResult` polos tanpa bentuk SDK; item 12 — situs edit saat format berubah (mis. `role` → `sender`): BAD 3 situs vs GOOD 1 (pemanggil tidak berubah). Task dummy agent (`PaymentProcessor.charge` dengan `gateway_adapter.py` + `wire.py`) melaporkan eksplisit kedua item **"MEMENGARUHI desain"**: adapter satu-satunya modul yang menyentuh bentuk SDK; payload hanya via builder `wire.py`. Catatan jujur: seperti episode `python-error-handling`, spawn agent reasoning ter-routing pola reviewer — bukti keras (read file + demo basher) berdiri sendiri.
+- [x] **Promosi skill `python-error-handling` items 13–14 TERVERIFIKASI (2026-08-06)** — item 13 (log hygiene: batasi detail error + `raise RuntimeError(...) from None` saat detail SDK yang verbose tak boleh sampai log via traceback `log.exception`) dan item 14 (kompensasi `try/finally` untuk acquire/release yang wajib selalu bersih; `finally` bukan `except` agar sinyal stop/emergency tidak tertelan) terverifikasi terhadap **kode live + suite**: `from None` di api.py:201/207 dengan tes regresi `error.__cause__ is None` + `error.__suppress_context__ is True` (test_dn_bot.py:686-687); pola `_press_key` (`keyUp` dijamin di `finally`) dengan tes propagasi `FocusLost` saat fokus mismatch (test_dn_bot.py:826/857) dan tes recorder `keyUp` tetap tercatat walau aksi diinterupsi (test_dn_bot.py:1016-1027); suite **83 passed**. Catatan jujur: items 13–14 tidak lewat demo basher terpisah seperti episode 11/12 — bukti = kode live + tes suite (pola `_press_key` yang direferensikan saat promosi memang pola terverifikasi di repo ini).
+- [x] **Promosi skill `improve` (reconcile) TERVERIFIKASI (2026-08-06)** — pelajaran reconcile plans/ (dua pass: 001–012 lalu 009–017) ditambahkan sebagai subsection **"Field notes: drift vs regression"** di `references/closing-the-loop.md` (baris 84–101): (1) taxonomi dua kelas kegagalan verifikasi — **cosmetic drift** (angka tes basi, nomor baris bergeser, SHA usang akibat upgrade disengaja) = update referensi, bukan regresi; **regression** = invariant rusak, butuh aksi; dua kesalahan simetris (ragukan invariant sah karena noise kosmetik vs anggap edit kosmetik sebagai bukti re-verifikasi); (2) plan harus membawa **invariant machine-checkable** (grep guard, jumlah tes eksak, lint exit 0) agar reconcile = satu batch grep + suite; (3) **verify dulu, tulis kemudian**; (4) supersession eksplisit (012 → via 015; 002+008 → 017) dengan cross-ref + catatan rejected; (5) **BLOCKED ≠ retired** (007/013 tetap open, butuh env eksternal); (6) addendum bertanggal di index ("Rekonsiliasi 2026-08-06" di plans/README.md:72 & :102); (7) refresh angka ekspektasi (suite tumbuh 60→83). Grounding: artefak reconcile aktual diverifikasi sebelum ditulis. Tidak ada kode proyek tersentuh.
+- [x] **Promosi skill `devops-engineer` (F-07) TERVERIFIKASI (2026-08-06)** — pelajaran pin SHA penuh + jebakan annotated tag dipromosikan ke `references/github-actions.md`, section **"Pinning Actions to Full SHAs (Supply-Chain Hardening)"** (baris 131–205: 5 aturan + perintah verifikasi `git ls-remote` dengan peeled ref) dan contoh minimal di `SKILL.md` diperbarui (checkout@v4/trivy@master → pinned + `permissions: contents: read`). **Terbaca**: section dikonfirmasi verbatim via grep + read_files (baris 131–205; aturan annotated-tag di ~157–169, rules 1–2 di ~181–186). **Memengaruhi hasil** (2 bukti independen): (1) **task dummy agent skill-active** — agent di-spawn dengan section di-inline, diminta pin dua action dari output `git ls-remote`: `checkout` v7.0.1 (query `refs/tags/v7.0.1^{}` **KOSONG** = lightweight) → pin SHA refs/tags `3d3c42e5…` (memang commit); `example/composite-action` v2.0.0 (ada baris `^{}` = annotated) → pin SHA peeled `deadbeef98…`, **tolak** `c0ffee12…` (objek tag — tipe `tag` bukan `commit`, gagal "not a commit"); agent menyatakan eksplisit bahwa catatan "watch out for annotated tags" **mengubah hasil** — tanpa itu, agent naif memilih SHA pertama di output (objek tag); (2) **demo mekanis** `git ls-remote .` + `cat-file -t` di temp repo: annotated `refs/tags` = tipe objek **tag** (`56c209a6…`) vs peeled `^{}` = **commit** (`dec87440…`); lightweight = **commit** tanpa baris `^{}` — persis klaim section (juga diverifikasi eksperimental sebelumnya: `5dc33f26…` tag-object vs `6feeb83a…` commit). **Catatan jujur**: spawn agent reasoning ter-routing pola reviewer (seperti episode 11/12) sehingga laporan task diproduksi namun validasi berdiri di bukti keras (read_files + demo basher); label echo "YES/NO" demo sempat terbalik, data `ls-remote`/`cat-file -t` tidak ambigu. SHA `3d3c42e5…` (checkout v7.0.1)/`5fda3b95…` (setup-python v7.0.0) diverifikasi dari remote saat eksekusi F-07; CI GitHub live tetap verifikasi final. Tidak ada kode proyek tersentuh.
+- [x] **Promosi skill `python-testing-patterns` (kandidat #4) TERVERIFIKASI (2026-08-06)** — pelajaran seam input device + recorder dipromosikan sebagai subsection **"Testing External I/O with a Seam and Recorder (not library patches)"** di `python-testing-patterns/SKILL.md` (baris 179–232: contoh BAD/GOOD nyata dari refactor `pydirectinput` → `DeviceInput` protocol + `RecordingDevice`, plus 4 aturan "learned the hard way"). **Terbaca**: subsection dikonfirmasi verbatim (header @179, contoh `assert_calls` @204, metode `assert_calls` @222, aturan @226–231). **Memengaruhi perilaku**: pola dipakai hidup di repo — `RecordingDevice` (conftest.py:33, `set_position` :64, `assert_calls` :68) dipakai 5 tes aksi + tes integration item 3 (assert urutan input fisik `moveTo` anchor→endpoint); `pydirectinput` hanya di `dn_bot/device.py` (guard grep); suite **83 passed**. **Catatan jujur**: seperti items 13–14 `python-error-handling`, verifikasi berdiri di kode live + suite (tanpa spawn-demo terpisah) — promosi ditulis setelah plan 015 dieksekusi dengan fakta kode diverifikasi ulang. Tidak ada kode proyek tersentuh.
+- [x] **Polesan tes SELESAI** — `test_classify_api_error_kinds` di-parametrize (12 kasus status→kind dengan `ids` deskriptif, konvensi AGENTS.md); CI cukup `python -m pytest -q` (testpaths sudah di `pytest.ini`); suite **83 tes**.
 
 ## Dokumen terkait
 

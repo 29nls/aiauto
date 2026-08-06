@@ -14,3 +14,6 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+.freebuff/desktop-v2.db-wal
+.freebuff/desktop-v2.db
+.freebuff/desktop-v2.db

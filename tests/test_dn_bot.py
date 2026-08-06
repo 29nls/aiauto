@@ -26,6 +26,25 @@ def _fake_client(create):
     )
 
 
+def _sdk_response(content=None, tool_calls=()):
+    """SDK-shaped response with a message that carries text + tool calls."""
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=list(tool_calls))
+            )
+        ]
+    )
+
+
+def _sdk_tool_call(call_id, arguments):
+    """SDK-shaped tool call object for dragon_nest_action."""
+    return SimpleNamespace(
+        id=call_id,
+        function=SimpleNamespace(name="dragon_nest_action", arguments=arguments),
+    )
+
+
 def test_openrouter_client_uses_configured_openrouter_base_url():
     with patch.dict(
         os.environ,
@@ -494,8 +513,8 @@ def test_int_env_returns_none_when_unset_and_no_default():
         assert dn_bot._int_env("DN_CAPTURE_LEFT") is None
 
 
-def test_image_block_uses_openai_compatible_image_url_data_uri():
-    block = dn_bot._image_block("abc123")
+def test_image_block_builds_openai_image_url_data_uri():
+    block = dn_bot.image_block("abc123")
 
     assert block == {
         "type": "image_url",
@@ -557,10 +576,7 @@ def test_extract_tool_requests_reads_openrouter_function_call():
     requests = dn_bot.extract_tool_requests(message)
 
     assert requests == [
-        {
-            "id": "call-1",
-            "input": {"action": "wait", "duration": 0.1},
-        }
+        dn_bot.ToolRequest(id="call-1", input={"action": "wait", "duration": 0.1})
     ]
 
 
@@ -581,13 +597,12 @@ def test_classify_api_error_kinds():
 
 def test_call_openrouter_retries_rate_limit_then_succeeds():
     attempts = {"count": 0}
-    expected = SimpleNamespace(ok=True)
 
     def create(**payload):
         attempts["count"] += 1
         if attempts["count"] < 3:
             raise _FakeAPIError("rate limited", 429)
-        return expected
+        return _sdk_response(content="baik")
 
     sleeps = []
     with patch.object(
@@ -595,7 +610,7 @@ def test_call_openrouter_retries_rate_limit_then_succeeds():
     ):
         result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
-    assert result is expected
+    assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
     assert attempts["count"] == 3
     assert sleeps == [dn_bot.API_RETRY_BASE_DELAY, dn_bot.API_RETRY_BASE_DELAY * 2]
 
@@ -674,18 +689,17 @@ def test_call_openrouter_preserves_short_error_detail():
 
 def test_call_openrouter_retries_network_timeout_then_succeeds():
     attempts = {"count": 0}
-    expected = SimpleNamespace(ok=True)
 
     def create(**payload):
         attempts["count"] += 1
         if attempts["count"] == 1:
             raise _FakeTimeoutError("timed out")
-        return expected
+        return _sdk_response(content="baik")
 
     with patch.object(dn_bot.api.time, "sleep"):
         result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
-    assert result is expected
+    assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
     assert attempts["count"] == 2
 
 
@@ -962,7 +976,7 @@ def test_new_session_id_is_unique_and_log_safe():
 
 def test_call_openrouter_logs_request_latency():
     def create(**payload):
-        return SimpleNamespace(ok=True)
+        return _sdk_response()
 
     calls = []
     with patch.object(
@@ -973,4 +987,126 @@ def test_call_openrouter_logs_request_latency():
     assert any(
         isinstance(args[0], str) and "OpenRouter request selesai" in args[0]
         for args in calls
+    )
+
+
+def test_messages_contract_wire_shapes():
+    assert dn_bot.user_text("go") == {"role": "user", "content": "go"}
+    assert dn_bot.image_block("abc") == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/jpeg;base64,abc"},
+    }
+    assert dn_bot.frame_message("abc", "cap") == {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "cap"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc"}},
+        ],
+    }
+    assert dn_bot.tool_result("c1", "ok") == {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": "ok",
+    }
+    assert dn_bot.assistant_message("halo", []) == {
+        "role": "assistant",
+        "content": "halo",
+    }
+    calls = [
+        {
+            "id": "c1",
+            "type": "function",
+            "function": {
+                "name": "dragon_nest_action",
+                "arguments": '{"action": "wait"}',
+            },
+        }
+    ]
+    assert dn_bot.assistant_message("halo", calls) == {
+        "role": "assistant",
+        "content": "halo",
+        "tool_calls": calls,
+    }
+
+
+def test_messages_tool_calls_wire_rebuilds_arguments_from_input():
+    requests = [
+        dn_bot.ToolRequest(id="call-1", input={"action": "wait", "duration": 0.1})
+    ]
+
+    assert dn_bot.tool_calls_wire(requests) == [
+        {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+                "name": "dragon_nest_action",
+                "arguments": '{"action": "wait", "duration": 0.1}',
+            },
+        }
+    ]
+
+
+def test_call_openrouter_does_not_retry_malformed_response():
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        return _sdk_response(tool_calls=[_sdk_tool_call("call-1", "not-json")])
+
+    with patch.object(dn_bot.api.time, "sleep"):
+        with pytest.raises(ValueError, match="JSON"):
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert attempts["count"] == 1
+
+
+def test_call_openrouter_parses_tool_requests_into_model_reply():
+    def create(**payload):
+        return _sdk_response(
+            content="akan pindah",
+            tool_calls=[_sdk_tool_call("call-1", '{"action": "wait"}')],
+        )
+
+    reply = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert reply == dn_bot.ModelReply(
+        text="akan pindah",
+        tool_requests=[dn_bot.ToolRequest(id="call-1", input={"action": "wait"})],
+    )
+
+
+def test_run_dn_bot_consumes_plain_model_reply():
+    frame = SimpleNamespace(encoded="frame")
+    replies = iter(
+        [
+            dn_bot.ModelReply(
+                text="",
+                tool_requests=[
+                    dn_bot.ToolRequest(id="call-1", input={"action": "wait"})
+                ],
+            ),
+            dn_bot.ModelReply(text="selesai", tool_requests=[]),
+        ]
+    )
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openrouter",
+        side_effect=lambda *args, **kwargs: next(replies),
+    ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
+        dn_bot.orchestrator, "check_emergency_stop"
+    ):
+        dn_bot.run_dn_bot("go", max_steps=2)
+
+    execute.assert_called_once_with(
+        action="wait",
+        coordinate=None,
+        text=None,
+        duration=dn_bot.MOVE_DURATION,
+        frame=frame,
     )

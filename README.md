@@ -150,6 +150,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
+│   ├── messages.py    # Kontrak wire-shape pesan OpenAI-compatible
 │   ├── input_control.py # Aksi fisik tervalidasi (pydirectinput)
 │   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
 │   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks

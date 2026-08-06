@@ -1,7 +1,7 @@
 # Plan 010 — Kandidat #2: adapter OpenRouter hasil model polos (implement)
 
 - **Temuan:** `_call_openrouter` mengembalikan **object SDK mentah** (`openai` response); `run_dn_bot` lalu mengakses `response.choices[0].message` + `extract_tool_requests` — boundary api.py bocor ke orchestrator, tes harus meniru bentuk SDK (`_FakeAPIError`, `_fake_client`), dan wire-shape respon tidak dimiliki oleh satu tempat.
-- **Status:** ⬜ Pending. Plan ini = implementasi adapter yang mengembalikan hasil polos.
+- **Status:** ✅ **Done** (2026-08-06). `_call_openrouter` mengembalikan `ModelReply` polos, parsing SDK hanya di `api.py`; suite penuh **67 passed**.
 
 ## Konteks
 

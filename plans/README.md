@@ -17,14 +17,14 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 | 007 | Indirect prompt injection via teks screenshot | F-01 (VERIFY-001) | Medium (potensi High saat live) | ✅ Mitigated (verifikasi live belum) | [007-f01-prompt-injection-live-verification.md](007-f01-prompt-injection-live-verification.md) — runbook |
 | 008 | Versi actions CI ketinggalan (pin SHA tidak menerima backport) | F-07 | Low | ✅ Fixed | [008-f07-upgrade-ci-actions.md](008-f07-upgrade-ci-actions.md) — verify |
 | 009 | Kandidat #1: global capture state → Frame module | — | — | ✅ Done | [009-arch1-frame-module.md](009-arch1-frame-module.md) — verify |
-| 010 | Kandidat #2: adapter OpenRouter hasil model polos | — | — | ⬜ Pending | [010-arch2-openrouter-plain-adapter.md](010-arch2-openrouter-plain-adapter.md) — **implement** |
-| 011 | Kandidat #3: satu module kontrak wire-shape pesan | — | — | ⬜ Pending | [011-arch3-message-contract-module.md](011-arch3-message-contract-module.md) — **implement** |
+| 010 | Kandidat #2: adapter OpenRouter hasil model polos | — | — | ✅ Done | [010-arch2-openrouter-plain-adapter.md](010-arch2-openrouter-plain-adapter.md) — verify |
+| 011 | Kandidat #3: satu module kontrak wire-shape pesan | — | — | ✅ Done | [011-arch3-message-contract-module.md](011-arch3-message-contract-module.md) — verify |
 | 012 | Kandidat #4: seam input device nyata | — | — | ⬜ Pending | [012-arch4-input-device-seam.md](012-arch4-input-device-seam.md) — **implement** |
 
 ## Urutan eksekusi yang direkomendasikan
 
-1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06). Urutan berikutnya: kandidat arsitektur (011 → 010 → 012).
-2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012 (seam input)** — kandidat arsitektur. 011 dan 010 berbagi boundary api.py; kerjakan 011 dulu agar adapter mengembalikan tipe kontrak, lalu 012 (orthogonal, menyentuh input_control.py + tes).
+1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06).
+2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** — SELESAI 2026-08-06 (67 tes). Tersisa kandidat arsitektur: **012 (seam input)** — orthogonal, menyentuh input_control.py + tes.
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
 4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
 

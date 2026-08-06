@@ -37,14 +37,6 @@ class Frame:
     geometry: CaptureGeometry
 
 
-def _image_block(encoded: str) -> dict[str, Any]:
-    """Build the OpenAI-compatible image content block used by OpenRouter."""
-    return {
-        "type": "image_url",
-        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
-    }
-
-
 def _capture_region_from_env(screen: mss.mss) -> dict[str, int]:
     """Use an explicit game-window rectangle, or a configured monitor.
 

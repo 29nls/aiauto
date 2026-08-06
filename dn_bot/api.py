@@ -16,6 +16,7 @@ from .config import (
     OPENROUTER_BASE_URL,
     log,
 )
+from .messages import ModelReply, ToolRequest
 
 DRAGON_NEST_TOOL = {
     "type": "function",
@@ -150,14 +151,30 @@ def _classify_api_error(error: BaseException) -> str:
     return "unknown"
 
 
+def _parse_model_reply(response: Any) -> ModelReply:
+    """Convert an SDK response into a plain ModelReply (contract types).
+
+    Parsing ini dipanggil di luar loop retry: error dari isi respons (tool tak
+    dikenal, arguments non-JSON) bukan error API transien dan tidak boleh
+    di-retry maupun diklasifikasi sebagai error OpenRouter.
+    """
+    message = response.choices[0].message
+    return ModelReply(
+        text=message.content or "",
+        tool_requests=extract_tool_requests(message),
+    )
+
+
 def _call_openrouter(
     client: OpenAI, model: str, messages: list[dict[str, Any]]
-) -> Any:
-    """Call the model with bounded retries for transient failures only.
+) -> ModelReply:
+    """Call the model with bounded retries, returning a plain ModelReply.
 
-    Retries wrap the request itself, never tool execution, so a retried or
-    failed call can never repeat a physical action.
+    Retries wrap the request itself, never tool execution or response parsing,
+    so a retried or failed call can never repeat a physical action and a
+    malformed response is never misclassified as a transient API error.
     """
+    response = None
     for attempt in range(1, API_MAX_ATTEMPTS + 1):
         started = time.monotonic()
         try:
@@ -174,7 +191,7 @@ def _call_openrouter(
                 attempt,
                 API_MAX_ATTEMPTS,
             )
-            return response
+            break
         except Exception as error:
             kind = _classify_api_error(error)
             detail = getattr(error, "message", None) or str(error)
@@ -199,9 +216,14 @@ def _call_openrouter(
             )
             time.sleep(delay)
 
+    # Parsing terjadi setelah loop retry (sukses) — lihat docstring
+    # `_parse_model_reply` (OVR-01: jangan menaruh helper domain-raising di
+    # dalam blok retry/except Exception lebar).
+    return _parse_model_reply(response)
 
-def extract_tool_requests(message: Any) -> list[dict[str, Any]]:
-    """Parse OpenRouter/OpenAI function calls into validated-loop inputs."""
+
+def extract_tool_requests(message: Any) -> list[ToolRequest]:
+    """Parse OpenRouter/OpenAI function calls into validated tool requests."""
     requests = []
     for call in getattr(message, "tool_calls", None) or []:
         if call.function.name != "dragon_nest_action":
@@ -212,5 +234,5 @@ def extract_tool_requests(message: Any) -> list[dict[str, Any]]:
             raise ValueError("Argument tool bukan JSON yang valid.") from error
         if not isinstance(tool_input, dict):
             raise ValueError("Argument tool harus berupa object JSON.")
-        requests.append({"id": call.id, "input": tool_input})
+        requests.append(ToolRequest(id=call.id, input=tool_input))
     return requests

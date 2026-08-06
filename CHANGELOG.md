@@ -17,6 +17,8 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 
 - Restrukturisasi penuh dari script tunggal `app_dn.py` menjadi package `dn_bot/` dengan entrypoint `python -m dn_bot`.
 - `capture.py`: global state tersembunyi (`_capture_region`/`_capture_geometry`) dihapus — diganti `Frame` immutable eksplisit (encoded JPEG + geometry) yang diteruskan ke `_physical_point` dan `execute_game_action` (prinsip determinism; kandidat arsitektur #1).
+- `dn_bot/messages.py` baru: satu module kontrak wire-shape pesan OpenAI-compatible (`user_text`, `image_block`, `frame_message`, `assistant_message`, `tool_result`, `tool_calls_wire`) + tipe polos `ToolRequest`/`ModelReply` — tidak ada lagi dict pesan mentah di orchestrator/capture (kandidat arsitektur #3).
+- Adapter OpenRouter (`_call_openrouter`) kini mengembalikan `ModelReply` polos (teks + tool requests terurai) dan mem-parse respons SDK di luar loop retry; `api.py` menjadi satu-satunya modul yang menyentuh object SDK, `extract_tool_requests` mengembalikan `list[ToolRequest]` (kandidat arsitektur #2).
 - Suite offline dimigrasi ke `tests/` dan dirapikan ke idiom pytest: 5 loop `for` di-parametrize (`@pytest.mark.parametrize` dengan id deskriptif), blok `try/except` menjadi `pytest.raises`, dan sys.path hack di conftest digantikan opsi `pythonpath`.
 - Workflow CI (`tests.yml`) diperbarui untuk layout package.
 - `README.md`: usage `python -m dn_bot`, struktur file, section "Dependensi & lock", klausa working-directory, dan catatan `pytest.ini`.

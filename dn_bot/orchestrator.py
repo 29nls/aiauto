@@ -7,8 +7,8 @@ import time
 import uuid
 from typing import Any
 
-from .api import _call_openrouter, extract_tool_requests, get_openrouter_client
-from .capture import _image_block, capture_screen_base64
+from .api import _call_openrouter, get_openrouter_client
+from .capture import capture_screen_base64
 from .config import (
     MAX_CONTEXT_MESSAGES,
     MAX_STEPS_PER_SESSION,
@@ -18,6 +18,13 @@ from .config import (
     log,
 )
 from .input_control import execute_game_action
+from .messages import (
+    assistant_message,
+    frame_message,
+    tool_calls_wire,
+    tool_result,
+    user_text,
+)
 from .safety import check_emergency_stop
 
 
@@ -90,14 +97,8 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
     client = get_openrouter_client()
     frame = capture_screen_base64()
     messages: list[dict[str, Any]] = [
-        {"role": "user", "content": instruction},
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Current screenshot."},
-                _image_block(frame.encoded),
-            ],
-        },
+        user_text(instruction),
+        frame_message(frame.encoded, "Current screenshot."),
     ]
 
     for step in range(1, max_steps + 1):
@@ -107,7 +108,12 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
         messages = _compact_messages(messages)
 
         try:
-            response = _call_openrouter(client, model, messages)
+            reply = _call_openrouter(client, model, messages)
+            # Wire-shape riwayat: assistant message + tool-calls dibangun lewat
+            # kontrak (messages.py), bukan dict mentah.
+            messages.append(
+                assistant_message(reply.text, tool_calls_wire(reply.tool_requests))
+            )
         except RuntimeError as error:
             # The chained cause is suppressed in _call_openrouter (`from None`)
             # so verbose SDK details never reach this log (F-06); the message
@@ -122,28 +128,6 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
                 time.monotonic() - step_started,
             )
             return
-
-        try:
-            message = response.choices[0].message
-            tool_calls = message.tool_calls or []
-            assistant_message = {
-                "role": "assistant",
-                "content": message.content or "",
-            }
-            if tool_calls:
-                assistant_message["tool_calls"] = [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.function.name,
-                            "arguments": call.function.arguments,
-                        },
-                    }
-                    for call in tool_calls
-                ]
-            messages.append(assistant_message)
-            tool_requests = extract_tool_requests(message)
         except (IndexError, AttributeError, TypeError, ValueError):
             log.exception("Respons model tidak valid; sesi dihentikan tanpa aksi tambahan.")
             log.info(
@@ -153,7 +137,7 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
             )
             return
 
-        if not tool_requests:
+        if not reply.tool_requests:
             log.info("Model tidak meminta aksi lagi; sesi selesai.")
             log.info(
                 "Langkah %s selesai dalam %.1f s",
@@ -162,18 +146,18 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
             )
             return
 
-        for index, request in enumerate(tool_requests):
+        for index, request in enumerate(reply.tool_requests):
             if index > 0:
                 result = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
                 log.warning(result)
             else:
-                action = request["input"].get("action")
+                action = request.input.get("action")
                 try:
                     execute_game_action(
                         action=action,
-                        coordinate=request["input"].get("coordinate"),
-                        text=request["input"].get("text"),
-                        duration=request["input"].get("duration", MOVE_DURATION),
+                        coordinate=request.input.get("coordinate"),
+                        text=request.input.get("text"),
+                        duration=request.input.get("duration", MOVE_DURATION),
                         frame=frame,
                     )
                     result = f"Aksi {action!r} berhasil dijalankan."
@@ -184,25 +168,13 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
                     log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
                     raise RuntimeError(f"Aksi {action!r} gagal: {error}") from error
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": request["id"],
-                    "content": result,
-                }
-            )
+            messages.append(tool_result(request.id, result))
 
         # A fresh screenshot is a separate user message after the tool results.
         # This avoids asking the model to act on a stale frame.
         frame = capture_screen_base64()
         messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Current screenshot after the action."},
-                    _image_block(frame.encoded),
-                ],
-            }
+            frame_message(frame.encoded, "Current screenshot after the action.")
         )
         messages = _compact_messages(messages)
         log.info(

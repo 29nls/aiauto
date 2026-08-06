@@ -9,7 +9,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Arsitektur & struktur
 
 - Package `dn_bot/` (bukan script tunggal); entrypoint `python -m dn_bot` (`dn_bot/__main__.py`).
-- DAG import **bebas-cycle**: `config` (tanpa dependensi internal) ← `safety` ← `capture`, dan `api`; `input_control` ← (safety, capture); `orchestrator` ← semua (top-level loop). Setiap modul memakai `from __future__ import annotations`.
+- DAG import **bebas-cycle**: `config` (tanpa dependensi internal) dan `messages` (hanya stdlib `json`/`typing`) ← semua; `safety` ← `config`; `capture` ← (config, safety); `api` ← (config, messages); `input_control` ← (safety, capture); `orchestrator` ← semua (top-level loop). Setiap modul memakai `from __future__ import annotations`.
 - `dn_bot/__init__.py` re-export API publik; `dn_bot.capture.*` adalah satu-satunya tempat patch global capture (lihat "Global state capture").
 - Tes di `tests/` (pytest), konfigurasi di `pytest.ini` (`testpaths = tests`, `pythonpath = .`) → jalankan `python -m pytest` dari root proyek.
 - Konstanta module-level di `config.py` (TARGET 1024×768, MAX_STEPS 10, MAX_CONTEXT_MESSAGES 8, dll). Jangan hardcode di modul lain.
@@ -54,6 +54,11 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - Koordinat: dua integer (bukan bool), dalam 1024×768, **bukan** area padding letterbox, **bukan** pojok kiri atas (emergency corner).
 - `move_camera`: endpoint absolut; cursor di-anchor ke titik tengah screenshot **setiap** aksi (invariant anti-drift) — jangan ubah tanpa mengganti tes terkait.
 
+## Kontrak pesan (`messages.py`)
+
+- Satu-satunya pemilik **wire-shape** pesan OpenAI-compatible: `user_text`, `image_block`, `frame_message` (teks + gambar), `assistant_message` (+ `tool_calls`), `tool_result`, dan `tool_calls_wire` (rebuild tool_calls dari `ToolRequest`). Tipe polos: `ToolRequest(id, input)` dan `ModelReply(text, tool_requests)`.
+- **Jangan bypass kontrak** dengan dict pesan mentah (`{"role": ...}`) di modul lain — guard via grep. `api.py` adalah satu-satunya modul yang menyentuh object SDK; `_call_openrouter` mengembalikan `ModelReply` polos dan mem-parse respons **di luar** loop retry (error isi respons tidak boleh di-retry maupun diklasifikasi sebagai error API).
+
 ## Orkestrasi (`orchestrator.py`)
 
 - `run_dn_bot`: loop terbatas (default `max_steps=10`), **satu aksi fisik per siklus** observasi, screenshot baru sebagai pesan user setelah tiap aksi — jangan bertindak pada frame basi.
@@ -74,7 +79,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - Suite offline murni: tanpa game, tanpa mouse fisik, tanpa OpenRouter. `_FakeAPIError`/`_FakeTimeoutError`/`_fake_client` menyimulasikan SDK.
 - **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.input_control.pydirectinput`, `dn_bot.api.time.sleep`), bukan modul definisi.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **62 tes**.
+- Jumlah target saat ini: **67 tes**.
 
 ## Env & config
 
@@ -94,14 +99,13 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
 - [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
-- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **60 passed** (membuktikan pin versi di lingkungan bersih).
+- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **67 passed** (membuktikan pin versi di lingkungan bersih).
 - [ ] **Commit worktree** — package restructure + pytest idiom + SECURITY/README/CHANGELOG/AGENTS belum di-commit.
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".
 - [x] **Kandidat arsitektur #1 (SELESAI — Frame module)**: global capture state (`_capture_region`/`_capture_geometry`) diganti `Frame` immutable eksplisit.
-- [ ] **Kandidat arsitektur (dari grilling, tersisa)**:
-  2. Adapter OpenRouter yang mengembalikan hasil model polos (tool requests + teks), bukan object SDK mentah.
-  3. Satu module kontrak yang memiliki semua wire-shape pesan OpenAI-compatible (image block, frame teks, assistant tool-call, tool result).
-  4. Seam input device nyata: adapter `pydirectinput` di produksi, recorder in-memory di tes.
+- [x] **Kandidat arsitektur #2 (SELESAI — adapter polos)**: `_call_openrouter` mengembalikan `ModelReply` (teks + `list[ToolRequest]`), parsing SDK hanya di `api.py`; orchestrator tidak menyentuh object SDK.
+- [x] **Kandidat arsitektur #3 (SELESAI — kontrak wire-shape)**: `dn_bot/messages.py` memiliki semua bentuk pesan; tidak ada dict mentah di orchestrator/capture.
+- [ ] **Kandidat arsitektur #4 (dari grilling, tersisa)**: Seam input device nyata — adapter `pydirectinput` di produksi, recorder in-memory di tes.
 - [ ] **Polesan tes opsional** — parametrize `test_classify_api_error_kinds` (12 kasus status→kind); CI cukup `python -m pytest -q` (testpaths sudah di `pytest.ini`).
 
 ## Dokumen terkait

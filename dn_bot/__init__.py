@@ -9,7 +9,15 @@ Run the bot with ``python -m dn_bot``.
 
 from __future__ import annotations
 
-from . import api, capture, config, input_control, orchestrator, safety
+from . import (
+    api,
+    capture,
+    config,
+    input_control,
+    messages,
+    orchestrator,
+    safety,
+)
 from .api import (
     API_ERROR_MESSAGES,
     DRAGON_NEST_TOOL,
@@ -26,10 +34,19 @@ from .api import (
 from .capture import (
     Frame,
     _geometry_for_region,
-    _image_block,
     _letterbox,
     _physical_point,
     capture_screen_base64,
+)
+from .messages import (
+    ModelReply,
+    ToolRequest,
+    assistant_message,
+    frame_message,
+    image_block,
+    tool_calls_wire,
+    tool_result,
+    user_text,
 )
 from .config import (
     ACTION_COOLDOWN,
@@ -67,6 +84,7 @@ __all__ = [
     "capture",
     "config",
     "input_control",
+    "messages",
     "orchestrator",
     "safety",
     # Core types & exceptions
@@ -93,10 +111,18 @@ __all__ = [
     # Capture
     "Frame",
     "_geometry_for_region",
-    "_image_block",
     "_letterbox",
     "_physical_point",
     "capture_screen_base64",
+    # Message contract (wire-shape)
+    "ModelReply",
+    "ToolRequest",
+    "assistant_message",
+    "frame_message",
+    "image_block",
+    "tool_calls_wire",
+    "tool_result",
+    "user_text",
     # Safety
     "_safe_sleep",
     "_sanitize_log_text",

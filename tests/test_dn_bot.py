@@ -29,16 +29,61 @@ def _fake_client(create):
 
 
 
-def test_openrouter_client_uses_configured_openrouter_base_url():
+def test_openrouter_client_passes_configured_base_url_api_key_and_timeout():
+    """Guard: the client is constructed with base_url, api_key, and a bounded
+    timeout (not the SDK default) — the exact T1 hardening."""
     with patch.dict(
         os.environ,
         {"OPENROUTER_API_KEY": "test-key"},
-        clear=False,
-    ):
-        client = dn_bot.get_openrouter_client()
+        clear=True,
+    ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
+        dn_bot.get_openrouter_client()
 
-    assert client.api_key == "test-key"
-    assert str(client.base_url).rstrip("/") == "https://openrouter.ai/api/v1"
+    mock_openai.assert_called_once_with(
+        base_url=dn_bot.config.OPENROUTER_BASE_URL,
+        api_key="test-key",
+        timeout=dn_bot.config.OPENROUTER_TIMEOUT_DEFAULT,
+    )
+
+
+def test_openrouter_client_honors_custom_timeout_env():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_TIMEOUT": "30",
+        },
+        clear=True,
+    ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
+        dn_bot.get_openrouter_client()
+
+    mock_openai.assert_called_once_with(
+        base_url=dn_bot.config.OPENROUTER_BASE_URL,
+        api_key="test-key",
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize(
+    "value,expected_text",
+    [
+        ("abc", "bilangan bulat"),
+        ("0", "positif"),
+        ("-5", "positif"),
+    ],
+    ids=["non-integer", "zero", "negative"],
+)
+def test_openrouter_client_rejects_invalid_timeout_env(value, expected_text):
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_TIMEOUT": value,
+        },
+        clear=True,
+    ), patch.object(dn_bot.api, "OpenAI"):
+        with pytest.raises(ValueError, match=expected_text):
+            dn_bot.get_openrouter_client()
 
 
 def test_move_camera_anchors_at_center_before_absolute_endpoint(capture_region):
@@ -773,6 +818,30 @@ def test_call_openrouter_retries_network_timeout_then_succeeds():
 
     assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
     assert attempts["count"] == 2
+
+
+def test_call_openrouter_timeout_errors_retry_then_surface_as_network():
+    """A timeout-class error maps to network (retryable), not unknown.
+
+    Guard: a request that exceeds OPENROUTER_TIMEOUT raises an SDK timeout
+    error; the taxonomy must classify it as a retryable network failure, so
+    the retry loop retries it and, when exhausted, surfaces the actionable
+    network message instead of the unknown-kind fallback.
+    """
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeTimeoutError("timed out")
+
+    with patch.object(dn_bot.api.time, "sleep"):
+        with pytest.raises(
+            RuntimeError, match=dn_bot.api.API_ERROR_MESSAGES["network"]
+        ) as error_info:
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
+    assert "timed out" in str(error_info.value)
 
 
 def test_run_dn_bot_stops_after_retries_without_running_actions():

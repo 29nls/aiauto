@@ -127,6 +127,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Sesi dibatasi maksimal 10 langkah.
 - Panggilan OpenRouter memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
+- Setiap request OpenRouter dibatasi timeout bawaan **60 detik** (atur `OPENROUTER_TIMEOUT` di `.env`, bilangan bulat positif dalam detik). Request yang hang diklasifikasi sebagai error jaringan dan ikut dicoba ulang oleh loop retry, sehingga sesi tidak terkunci tanpa responsivitas sampai batas default SDK.
 - Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenRouter. API key, token, dan konten percakapan tidak pernah di-log. Judul window aktif di-sanitasi (karakter kontrol dan sekuens ANSI di-strip) sebelum masuk ke pesan log, dan detail pesan error OpenRouter dibatasi panjangnya (maks 500 karakter) agar log tidak berisik.
 
 Function yang tersedia:

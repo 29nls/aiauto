@@ -26,6 +26,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Suite offline dimigrasi ke `tests/` dan dirapikan ke idiom pytest: 5 loop `for` di-parametrize (`@pytest.mark.parametrize` dengan id deskriptif), blok `try/except` menjadi `pytest.raises`, dan sys.path hack di conftest digantikan opsi `pythonpath`.
 - Workflow CI (`tests.yml`) diperbarui untuk layout package.
 - `README.md`: usage `python -m dn_bot`, struktur file, section "Dependensi & lock", klausa working-directory, dan catatan `pytest.ini`.
+- `get_openrouter_client` kini memasang timeout bawaan 60 detik (env `OPENROUTER_TIMEOUT`, bilangan bulat positif dalam detik) pada client OpenRouter; request yang hang dibatasi dan diklasifikasi sebagai error jaringan (retryable) oleh loop retry, sehingga sesi tidak terkunci hingga batas default SDK (~600 s × 3 percobaan) tanpa responsivitas (temuan survey T1).
 
 ### Removed
 

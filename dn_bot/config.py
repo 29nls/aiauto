@@ -34,6 +34,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 API_MAX_ATTEMPTS = 3
 API_RETRY_BASE_DELAY = 1.5
 API_ERROR_DETAIL_MAX = 500
+# Default seconds before an OpenRouter request is aborted (env OPENROUTER_TIMEOUT).
+# Bounded so a hung request cannot hold the session for the SDK default (~600 s)
+# times API_MAX_ATTEMPTS without any emergency responsiveness in between.
+OPENROUTER_TIMEOUT_DEFAULT = 60
 
 MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
 ACTION_KEYS = {
@@ -90,6 +94,28 @@ def _int_env(name: str, default: Optional[str] = None) -> Optional[int]:
         raise ValueError(
             f"{name} harus berupa bilangan bulat, bukan {raw!r}."
         ) from None
+
+
+def _request_timeout() -> int:
+    """Seconds before an OpenRouter request is aborted (env OPENROUTER_TIMEOUT).
+
+    Defaults to ``OPENROUTER_TIMEOUT_DEFAULT`` (60 s). Fails fast with a clear
+    message on non-integer or non-positive values, mirroring the ``_int_env``
+    parsing pattern.
+
+    Parsing happens at client construction (``get_openrouter_client``), not in
+    preflight: preflight is intentionally unchanged, and a malformed value
+    still surfaces at session start before the first request.
+
+    Raises:
+        ValueError: If the configured value is not a positive integer.
+    """
+    timeout = _int_env("OPENROUTER_TIMEOUT", str(OPENROUTER_TIMEOUT_DEFAULT))
+    if timeout <= 0:
+        raise ValueError(
+            "OPENROUTER_TIMEOUT harus berupa bilangan bulat positif (detik)."
+        ) from None
+    return timeout
 
 
 def _validate_capture_env() -> None:

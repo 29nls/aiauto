@@ -14,6 +14,7 @@ from .config import (
     API_MAX_ATTEMPTS,
     API_RETRY_BASE_DELAY,
     OPENROUTER_BASE_URL,
+    _request_timeout,
     log,
 )
 from .messages import ModelReply, ToolRequest
@@ -99,7 +100,13 @@ Aturan aksi:
 
 
 def get_openrouter_client() -> OpenAI:
-    """Create an OpenAI-compatible client pointed at OpenRouter."""
+    """Create an OpenAI-compatible client pointed at OpenRouter.
+
+    The client carries a bounded request timeout (``OPENROUTER_TIMEOUT``,
+    default 60 s) so a hung request aborts instead of holding the session for
+    the SDK default; a timeout surfaces as an ``APITimeoutError`` which the
+    error taxonomy classifies as a retryable network-kind failure.
+    """
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError(
@@ -107,7 +114,11 @@ def get_openrouter_client() -> OpenAI:
             "dan isi API key secara lokal."
         )
 
-    return OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+    return OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=api_key,
+        timeout=_request_timeout(),
+    )
 
 
 # Failure kinds that are worth retrying. Configuration errors (auth, model,

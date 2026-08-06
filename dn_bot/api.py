@@ -82,6 +82,7 @@ MINOTAUR_TOOL["function"]["parameters"]["properties"]["farm_state"] = {
     "enum": list(farm_state_values()),
     "description": "The screen state after this action in Minotaur mode.",
 }
+MINOTAUR_TOOL["function"]["parameters"]["required"] = ["action", "farm_state"]
 
 SYSTEM_PROMPT = """Kamu adalah vision agent untuk eksperimen kontrol input Dragon Nest.
 

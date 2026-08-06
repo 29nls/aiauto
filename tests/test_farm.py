@@ -46,7 +46,7 @@ def test_watchdog_rejects_illegal_transition_and_action():
         watchdog.validate_and_advance("pre_dungeon", "press_move_key")
 
 
-def test_watchdog_stops_after_repeated_no_progress():
+def test_watchdog_enters_recovery_after_repeated_no_progress():
     watchdog = dn_bot.FarmWatchdog(
         dn_bot.MINOTAUR_PROFILE,
         max_actions_without_transition=2,
@@ -54,11 +54,23 @@ def test_watchdog_stops_after_repeated_no_progress():
     )
     watchdog.validate_and_advance("pre_dungeon", "wait")
     watchdog.validate_and_advance("pre_dungeon", "wait")
-    with pytest.raises(dn_bot.FarmSafetyStop, match="tidak menunjukkan progres"):
-        watchdog.validate_and_advance("pre_dungeon", "wait")
+    watchdog.validate_and_advance("pre_dungeon", "wait")
+    assert watchdog.state is dn_bot.FarmState.RECOVERY
 
 
-def test_watchdog_stops_after_state_timeout():
+def test_watchdog_stops_if_recovery_stalls():
+    watchdog = dn_bot.FarmWatchdog(
+        dn_bot.MINOTAUR_PROFILE,
+        max_actions_without_transition=1,
+        state_timeout_seconds=60,
+    )
+    watchdog.validate_and_advance("recovery", "wait")
+    watchdog.validate_and_advance("recovery", "wait")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="Recovery"):
+        watchdog.validate_and_advance("recovery", "wait")
+
+
+def test_watchdog_enters_recovery_after_state_timeout():
     now = [0.0]
     watchdog = dn_bot.FarmWatchdog(
         dn_bot.MINOTAUR_PROFILE,
@@ -66,8 +78,8 @@ def test_watchdog_stops_after_state_timeout():
         clock=lambda: now[0],
     )
     now[0] = 6.0
-    with pytest.raises(dn_bot.FarmSafetyStop, match="tidak selesai"):
-        watchdog.check()
+    watchdog.check()
+    assert watchdog.state is dn_bot.FarmState.RECOVERY
 
 
 def test_farm_cli_requires_profile_for_until_stopped():
@@ -105,6 +117,12 @@ def test_farm_loop_requires_farm_state_and_uses_extended_prompt(capture_region):
             dn_bot.run_dn_bot(
                 "farm minotaur", max_steps=1, farm_profile=dn_bot.MINOTAUR_PROFILE
             )
+
+
+def test_minotaur_tool_requires_farm_state():
+    parameters = dn_bot.MINOTAUR_TOOL["function"]["parameters"]
+    assert "farm_state" in parameters["properties"]
+    assert parameters["required"] == ["action", "farm_state"]
 
 
 def test_farm_loop_accepts_state_and_sends_f12_transition(capture_region):

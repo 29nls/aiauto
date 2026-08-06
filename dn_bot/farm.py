@@ -43,35 +43,25 @@ _FARM_ACTIONS = frozenset(
     }
 )
 
-# Actions are checked against the state reported for the next observation. A
-# state transition is accepted before checking the action, so a boss-reward
-# response may explicitly transition to LOOT_CHEST and click the visible chest
-# in the same response.
 _MINOTAUR_ALLOWED_ACTIONS: dict[FarmState, FrozenSet[str]] = {
     FarmState.PRE_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
     FarmState.ENTERING_DUNGEON: _FARM_ACTIONS,
-    FarmState.COMBAT: frozenset(
-        {
-            "mouse_move",
-            "left_click",
-            "right_click",
-            "press_move_key",
-            "press_action_key",
-            "move_camera",
-            "wait",
-        }
-    ),
+    FarmState.COMBAT: _FARM_ACTIONS,
     # Box selection/review is deliberately skipped: wait until the map chest
     # is visible, then transition explicitly to LOOT_CHEST.
     FarmState.BOSS_REWARD: frozenset({"wait"}),
     FarmState.LOOT_CHEST: frozenset({"left_click", "mouse_move", "wait"}),
     FarmState.LOOT_RESULT: frozenset({"wait", "press_action_key"}),
-    FarmState.RETURN_NAVIGATION: frozenset({"press_action_key", "left_click", "wait"}),
+    FarmState.RETURN_NAVIGATION: frozenset(
+        {"press_action_key", "left_click", "wait"}
+    ),
     FarmState.RECOVERY: frozenset({"press_action_key", "wait"}),
 }
 
 _MINOTAUR_TRANSITIONS: dict[FarmState, FrozenSet[FarmState]] = {
-    FarmState.PRE_DUNGEON: frozenset({FarmState.PRE_DUNGEON, FarmState.ENTERING_DUNGEON, FarmState.RECOVERY}),
+    FarmState.PRE_DUNGEON: frozenset(
+        {FarmState.PRE_DUNGEON, FarmState.ENTERING_DUNGEON, FarmState.RECOVERY}
+    ),
     FarmState.ENTERING_DUNGEON: frozenset(
         {FarmState.ENTERING_DUNGEON, FarmState.COMBAT, FarmState.RECOVERY}
     ),
@@ -148,12 +138,15 @@ class FarmWatchdog:
         profile: FarmProfile,
         *,
         max_actions_without_transition: int = 20,
+        max_actions_per_run: int = 200,
         state_timeout_seconds: float = 180.0,
         max_recovery_attempts: int = 2,
         clock=time.monotonic,
     ) -> None:
         if max_actions_without_transition < 1:
             raise ValueError("max_actions_without_transition harus >= 1.")
+        if max_actions_per_run < 1:
+            raise ValueError("max_actions_per_run harus >= 1.")
         if state_timeout_seconds <= 0:
             raise ValueError("state_timeout_seconds harus positif.")
         if max_recovery_attempts < 1:
@@ -161,17 +154,20 @@ class FarmWatchdog:
         self.profile = profile
         self.state = profile.initial_state
         self.max_actions_without_transition = max_actions_without_transition
+        self.max_actions_per_run = max_actions_per_run
         self.state_timeout_seconds = state_timeout_seconds
         self.max_recovery_attempts = max_recovery_attempts
         self._clock = clock
         self._state_started_at = clock()
         self._actions_without_transition = 0
+        self._actions_in_run = 0
         self._recovery_attempts = 0
+        self.completed_runs = 0
 
-    def validate_and_advance(
+    def validate(
         self, next_state: str, action: str, text: str | None = None
     ) -> FarmState:
-        """Validate the model signal and advance the workflow atomically."""
+        """Validate a proposed transition without mutating workflow state."""
         try:
             candidate = FarmState(next_state)
         except (TypeError, ValueError) as error:
@@ -200,38 +196,66 @@ class FarmWatchdog:
             raise FarmSafetyStop(
                 "Keluar dari loot result hanya boleh memakai press_action_key f12."
             )
+        return candidate
 
-        if candidate == self.state:
+    def advance(self, candidate: FarmState) -> FarmState:
+        """Commit a previously validated transition after its action succeeds."""
+        previous = self.state
+        if candidate == previous:
             self._actions_without_transition += 1
         else:
             self.state = candidate
             self._state_started_at = self._clock()
             self._actions_without_transition = 0
 
-        if candidate == FarmState.RECOVERY:
-            self._recovery_attempts += 1
-            if self._recovery_attempts > self.max_recovery_attempts:
-                raise FarmSafetyStop(
-                    "Recovery farming berulang terlalu sering; sesi dihentikan."
-                )
-        elif self.state != FarmState.RECOVERY:
-            self._recovery_attempts = 0
+        self._actions_in_run += 1
+        if previous == FarmState.RETURN_NAVIGATION and candidate == FarmState.PRE_DUNGEON:
+            self.completed_runs += 1
+            self._actions_in_run = 0
 
+        if candidate == FarmState.RECOVERY and previous != FarmState.RECOVERY:
+            self._recovery_attempts += 1
+        # Recovery attempts are session-level, not consecutive-level: a
+        # successful-looking escape must not allow an endless recovery loop.
+        if self._recovery_attempts > self.max_recovery_attempts:
+            raise FarmSafetyStop(
+                "Recovery farming berulang terlalu sering; sesi dihentikan."
+            )
         self.check()
         return self.state
 
+    def validate_and_advance(
+        self, next_state: str, action: str, text: str | None = None
+    ) -> FarmState:
+        """Validate and commit a transition for direct/unit-test callers."""
+        return self.advance(self.validate(next_state, action, text))
+
     def check(self) -> None:
-        """Raise when the current state is stuck or exceeds its time budget."""
+        """Enter bounded recovery on stagnation; stop if recovery also stalls."""
         elapsed = self._clock() - self._state_started_at
-        if elapsed > self.state_timeout_seconds:
-            raise FarmSafetyStop(
-                f"State {self.state.value} tidak selesai dalam "
-                f"{self.state_timeout_seconds:.0f} detik."
+        stalled = (
+            elapsed > self.state_timeout_seconds
+            or self._actions_without_transition > self.max_actions_without_transition
+            or (
+                self.state != FarmState.RECOVERY
+                and self._actions_in_run > self.max_actions_per_run
             )
-        if self._actions_without_transition > self.max_actions_without_transition:
+        )
+        if not stalled:
+            return
+        if self.state == FarmState.RECOVERY:
             raise FarmSafetyStop(
-                f"State {self.state.value} tidak menunjukkan progres setelah "
-                f"{self.max_actions_without_transition} aksi."
+                "Recovery farming tidak menghasilkan progres dalam batas aman."
+            )
+        self.state = FarmState.RECOVERY
+        self._state_started_at = self._clock()
+        self._actions_without_transition = 0
+        # Keep _actions_in_run intact. A recovery is not a completed run and
+        # must not reset the per-run budget.
+        self._recovery_attempts += 1
+        if self._recovery_attempts > self.max_recovery_attempts:
+            raise FarmSafetyStop(
+                "Recovery farming berulang terlalu sering; sesi dihentikan."
             )
 
     def caption(self) -> str:

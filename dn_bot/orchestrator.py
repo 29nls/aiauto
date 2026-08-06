@@ -138,6 +138,9 @@ def run_dn_bot(
         step += 1
         step_started = time.monotonic()
         check_emergency_stop(device)
+        if watchdog is not None:
+            watchdog.check()
+            frame_caption = watchdog.caption()
         step_limit = "∞" if until_stopped else str(max_steps)
         log.info("Langkah %s/%s (session=%s)", step, step_limit, session_id)
         messages = _compact_messages(messages)
@@ -202,7 +205,7 @@ def run_dn_bot(
             else:
                 action = request.input.get("action")
                 if watchdog is not None:
-                    watchdog.validate_and_advance(
+                    candidate_state = watchdog.validate(
                         request.input.get("farm_state"),
                         action,
                         request.input.get("text"),
@@ -217,6 +220,8 @@ def run_dn_bot(
                         device=device,
                     )
                     result = f"Aksi {action!r} berhasil dijalankan."
+                    if watchdog is not None:
+                        watchdog.advance(candidate_state)
                     log.info("Aksi: %s", action)
                 except (EmergencyStop, FocusLost):
                     raise

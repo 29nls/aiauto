@@ -699,7 +699,7 @@ def test_call_openrouter_retries_rate_limit_then_succeeds():
 
     sleeps = []
     with patch.object(
-        dn_bot.api.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)
+        dn_bot.api, "_safe_sleep", side_effect=lambda seconds: sleeps.append(seconds)
     ):
         result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
@@ -715,7 +715,7 @@ def test_call_openrouter_stops_after_max_attempts():
         attempts["count"] += 1
         raise _FakeAPIError("rate limited", 429)
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         try:
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
         except RuntimeError as error:
@@ -737,7 +737,7 @@ def test_call_openrouter_does_not_retry_configuration_errors(status_code, expect
         attempts["count"] += 1
         raise _FakeAPIError("config problem", status_code)
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         with pytest.raises(RuntimeError, match=expected_text):
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
@@ -750,7 +750,7 @@ def test_call_openrouter_truncates_long_error_detail():
     def create(**payload):
         raise _FakeAPIError(long_detail, 401)
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         try:
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
         except RuntimeError as error:
@@ -769,7 +769,7 @@ def test_call_openrouter_sanitizes_sdk_error_detail():
     def create(**payload):
         raise _FakeAPIError("\x1b[31mhostile detail\x1b[0m", 401)
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         try:
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
         except RuntimeError as error:
@@ -788,13 +788,53 @@ def test_check_emergency_stop_raises_in_failsafe_corner():
     dn_bot.check_emergency_stop(RecordingDevice(position=(6, 6)))
 
 
+def test_backoff_sleep_aborts_immediately_on_emergency_corner():
+    """Backoff sleep aborts before the first interval if the corner is already hit."""
+    with patch.object(dn_bot.safety, "check_target_window"), patch.object(
+        dn_bot.safety.time, "sleep"
+    ) as sleep_mock:
+        with pytest.raises(dn_bot.EmergencyStop):
+            dn_bot.safety._safe_sleep(2, device=RecordingDevice(position=(0, 0)))
+
+    sleep_mock.assert_not_called()  # aborted before sleeping even once
+
+
+def test_backoff_sleep_detects_emergency_mid_delay():
+    """Backoff sleep aborts when the corner is hit during the delay."""
+    device = RecordingDevice(position=(100, 100))
+
+    def _hit_corner_mid_sleep(_seconds):
+        device.set_position((0, 0))
+
+    with patch.object(dn_bot.safety, "check_target_window"), patch.object(
+        dn_bot.safety.time, "sleep", side_effect=_hit_corner_mid_sleep
+    ):
+        with pytest.raises(dn_bot.EmergencyStop):
+            dn_bot.safety._safe_sleep(2, device=device)
+
+
+def test_backoff_sleep_completes_when_no_emergency():
+    """Backoff sleep runs the full duration in short intervals when no abort."""
+    sleeps = []
+    device = RecordingDevice(position=(100, 100))
+    with patch.object(dn_bot.safety, "check_target_window"), patch.object(
+        dn_bot.safety.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)
+    ):
+        dn_bot.safety._safe_sleep(0.05, device=device)
+
+    assert sleeps
+    assert all(0 < seconds <= 0.05 for seconds in sleeps)
+    # The safety checks kept consulting the device's cursor throughout the delay.
+    assert ("position", ()) in device.calls
+
+
 def test_call_openrouter_preserves_short_error_detail():
     short_detail = "config problem"
 
     def create(**payload):
         raise _FakeAPIError(short_detail, 401)
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         try:
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
         except RuntimeError as error:
@@ -813,7 +853,7 @@ def test_call_openrouter_retries_network_timeout_then_succeeds():
             raise _FakeTimeoutError("timed out")
         return _sdk_response(content="baik")
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
     assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
@@ -834,7 +874,7 @@ def test_call_openrouter_timeout_errors_retry_then_surface_as_network():
         attempts["count"] += 1
         raise _FakeTimeoutError("timed out")
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         with pytest.raises(
             RuntimeError, match=dn_bot.api.API_ERROR_MESSAGES["network"]
         ) as error_info:
@@ -842,6 +882,45 @@ def test_call_openrouter_timeout_errors_retry_then_surface_as_network():
 
     assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
     assert "timed out" in str(error_info.value)
+
+
+def test_call_openrouter_propagates_emergency_during_backoff():
+    """EmergencyStop from the backoff sleep aborts the session, unretried.
+
+    Guard: the retry loop must not classify/wrap the emergency error into a
+    RuntimeError — the user hitting the failsafe corner mid-delay stops the
+    session immediately with no further request.
+    """
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeAPIError("rate limited", 429)
+
+    with patch.object(
+        dn_bot.api, "_safe_sleep", side_effect=dn_bot.EmergencyStop("pojok kiri atas")
+    ):
+        with pytest.raises(dn_bot.EmergencyStop):
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert attempts["count"] == 1  # no retry after the emergency abort
+
+
+def test_call_openrouter_propagates_focus_lost_during_backoff():
+    """FocusLost from the backoff sleep aborts the session, unretried."""
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeAPIError("server error", 500)
+
+    with patch.object(
+        dn_bot.api, "_safe_sleep", side_effect=dn_bot.FocusLost("fokus hilang")
+    ):
+        with pytest.raises(dn_bot.FocusLost):
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert attempts["count"] == 1  # no retry after the focus abort
 
 
 def test_run_dn_bot_stops_after_retries_without_running_actions():
@@ -860,7 +939,7 @@ def test_run_dn_bot_stops_after_retries_without_running_actions():
         dn_bot.orchestrator, "capture_screen_base64", return_value=SimpleNamespace(encoded="frame")
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
-    ), patch.object(dn_bot.orchestrator.time, "sleep"):
+    ), patch.object(dn_bot.api, "_safe_sleep"):
         dn_bot.run_dn_bot("go", max_steps=1)
 
     assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
@@ -903,7 +982,7 @@ def test_run_dn_bot_retried_call_runs_action_exactly_once():
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
-    ), patch.object(dn_bot.orchestrator.time, "sleep"):
+    ), patch.object(dn_bot.api, "_safe_sleep"):
         dn_bot.run_dn_bot("go", max_steps=1)
 
     assert attempts["count"] == 2
@@ -1218,7 +1297,7 @@ def test_call_openrouter_does_not_retry_malformed_response():
         attempts["count"] += 1
         return _sdk_response(tool_calls=[_sdk_tool_call("call-1", "not-json")])
 
-    with patch.object(dn_bot.api.time, "sleep"):
+    with patch.object(dn_bot.api, "_safe_sleep"):
         with pytest.raises(ValueError, match="JSON"):
             dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 

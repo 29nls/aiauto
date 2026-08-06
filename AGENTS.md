@@ -21,7 +21,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - **Hierarki exception** (terverifikasi):
   - `ValueError` untuk input tak valid (pesan actionable, Bahasa Indonesia).
   - `RuntimeError` untuk error konfigurasi/platform. `EmergencyStop` dan `FocusLost` adalah subclass `RuntimeError` yang didefinisikan di `config.py`.
-  - Exception domain (`EmergencyStop`/`FocusLost`) **harus bisa menembus semua lapisan**: jangan pernah menempatkan pemanggil yang bisa melemparnya di dalam `except Exception` lebar yang menelannya — re-raise eksplisit `(EmergencyStop, FocusLost)` di lapisan yang menangkapnya (`run_dn_bot`), dan gunakan `finally` (bukan `except`) untuk kompensasi (lihat pola `_press_key`). Pola anti (OVR-01) pernah terjadi: helper domain-raising di dalam blok retry `except Exception` — jangan ulangi.
+  - Exception domain (`EmergencyStop`/`FocusLost`) **harus bisa menembus semua lapisan**: jangan pernah menempatkan pemanggil yang bisa melemparnya di dalam `except Exception` lebar yang menelannya — re-raise eksplisit `(EmergencyStop, FocusLost)` di lapisan yang menangkapnya (`run_dn_bot`, dan `_call_openrouter` sejak T2: backoff `_safe_sleep` bisa melempar keduanya di tengah jeda retry), dan gunakan `finally` (bukan `except`) untuk kompensasi (lihat pola `_press_key`). Pola anti (OVR-01) pernah terjadi: helper domain-raising di dalam blok retry `except Exception` — jangan ulangi.
   - `_call_openrouter` menangkap `Exception` **hanya** di sekitar panggilan request, mengklasifikasikan, lalu melempar `RuntimeError` (konversi, bukan penelan).
   - **Wrapper aksi (`orchestrator.py:170`, `raise RuntimeError(...) from error`) sengaja mempertahankan chain** — bukan inkonsistensi F-06. `error` di sini hanya pesan validasi pendek (`ValueError` dari `execute_game_action`) atau error runtime `pydirectinput`, tidak pernah pesan SDK yang verbose seperti di `_call_openrouter`; `from None` (untuk log hygiene F-06) karena itu tidak diperlukan di sini, dan chain justru berguna sebagai konteks debugging. Jangan ubah menjadi `from None` tanpa alasan baru.
 
@@ -64,7 +64,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - `run_dn_bot`: loop terbatas (default `max_steps=10`), **satu aksi fisik per siklus** observasi, screenshot baru sebagai pesan user setelah tiap aksi — jangan bertindak pada frame basi.
 - `_compact_messages`: batasi ke `MAX_CONTEXT_MESSAGES`, pertahankan instruction awal + frame terbaru + grup assistant/tool **lengkap** (pasangan `tool_call_id`); jika turn terbaru tidak muat, berhenti (tidak fallback ke konteks yang lebih lama).
-- Retry `_call_openrouter`: maks 3 attempt (2 retry), **hanya** kind transien (`rate_limit`/`server`/`network`), backoff eksponensial (base 1.5 s). Retry membungkus request, **tidak pernah** eksekusi aksi → aksi tidak pernah diulang. Error konfigurasi (auth/not_found/invalid_request) gagal cepat.
+- Retry `_call_openrouter`: maks 3 attempt (2 retry), **hanya** kind transien (`rate_limit`/`server`/`network`), backoff eksponensial (base 1.5 s). Jeda backoff memakai `_safe_sleep` sehingga **responsif terhadap emergency**: pojok failsafe + fokus jendela dicek tiap interval ≤50 ms, dan `EmergencyStop`/`FocusLost` diteruskan keluar loop (re-raise eksplisit sebelum `except Exception` — jangan klasifikasi/bungkus). Retry membungkus request, **tidak pernah** eksekusi aksi → aksi tidak pernah diulang. Error konfigurasi (auth/not_found/invalid_request) gagal cepat.
 - Observability tanpa secret: session ID (`%Y%m%d-%H%M%S` + uuid hex 6), durasi per langkah, dimensi region, latensi request. API key/token/konten percakapan tidak pernah di-log.
 
 ## Frame (snapshot eksplisit — determinisme)
@@ -85,9 +85,10 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Konvensi tes
 
 - Suite offline murni: tanpa game, tanpa mouse fisik, tanpa OpenRouter. `_FakeAPIError`/`_FakeTimeoutError`/`_fake_client` menyimulasikan SDK.
-- **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api.time.sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
+- **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api._safe_sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
+- **Quirk env terverifikasi (Python 3.14.6/Windows, 2026-08-08)**: konstruksi client OpenAI **asli** (`OpenAI(...)`) di dalam pytest gagal dengan `ssl.SSLError: [SSL] unknown error (0xa080024)` ketika `from PIL import Image` sudah di-import DAN env di-wipe (`patch.dict(os.environ, ..., clear=True)`) — konstruksi sukses standalone maupun dengan `clear=False`. Jangan re-diagnosis: tes yang menyentuh `get_openrouter_client` memakai `patch.object(dn_bot.api, "OpenAI")` dan assert kwargs (`base_url`/`api_key`/`timeout`), bukan konstruksi client asli.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **93 tes**.
+- Jumlah target saat ini: **98 tes**.
 - `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
 - `test_integration_real_input_sequence_via_recorder` (plan 016 item 3): menjalankan `execute_game_action` **ASLI** dengan `RecordingDevice` — assert urutan input fisik (`move_camera` = anchor tengah → endpoint; `wait` = tanpa call device) dan frame yang dipakai tiap aksi; guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input.
 
@@ -109,7 +110,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
 - [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
-- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **93 passed** (membuktikan pin versi di lingkungan bersih).
+- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **98 passed** (membuktikan pin versi di lingkungan bersih).
 - [x] **Commit worktree** — seluruh working tree sesi ter-commit (`de000e9` + `cf1b011`..`e74bc21`, tanpa push).
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".
 - [x] **Kandidat arsitektur #1 (SELESAI — Frame module)**: global capture state (`_capture_region`/`_capture_geometry`) diganti `Frame` immutable eksplisit.

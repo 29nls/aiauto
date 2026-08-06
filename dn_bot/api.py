@@ -14,11 +14,13 @@ from .config import (
     API_MAX_ATTEMPTS,
     API_RETRY_BASE_DELAY,
     OPENROUTER_BASE_URL,
+    EmergencyStop,
+    FocusLost,
     _request_timeout,
     log,
 )
 from .messages import ModelReply, ToolRequest
-from .safety import _sanitize_log_text
+from .safety import _safe_sleep, _sanitize_log_text
 
 DRAGON_NEST_TOOL = {
     "type": "function",
@@ -185,6 +187,11 @@ def _call_openrouter(
     Retries wrap the request itself, never tool execution or response parsing,
     so a retried or failed call can never repeat a physical action and a
     malformed response is never misclassified as a transient API error.
+
+    The exponential backoff between attempts sleeps via ``safety._safe_sleep``,
+    which checks the failsafe corner and window focus throughout the delay;
+    ``EmergencyStop``/``FocusLost`` raised there propagate out unchanged so the
+    session aborts instead of waiting out the full backoff.
     """
     response = None
     for attempt in range(1, API_MAX_ATTEMPTS + 1):
@@ -204,6 +211,11 @@ def _call_openrouter(
                 API_MAX_ATTEMPTS,
             )
             break
+        except (EmergencyStop, FocusLost):
+            # The backoff sleep (safety._safe_sleep) aborts the session via
+            # these errors when the failsafe corner or window focus is hit
+            # mid-delay; they must propagate, never be classified or wrapped.
+            raise
         except Exception as error:
             kind = _classify_api_error(error)
             detail = getattr(error, "message", None) or str(error)
@@ -230,7 +242,9 @@ def _call_openrouter(
                 time.monotonic() - started,
                 delay,
             )
-            time.sleep(delay)
+            # Emergency-responsive: _safe_sleep checks the failsafe corner and
+            # window focus in short intervals, so the user can abort mid-delay.
+            _safe_sleep(delay)
 
     # Parsing happens only after the retry loop succeeded — see the
     # `_parse_model_reply` docstring (OVR-01: never place domain-raising

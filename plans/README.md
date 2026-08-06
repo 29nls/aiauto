@@ -24,7 +24,7 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 ## Urutan eksekusi yang direkomendasikan
 
 1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06).
-2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **83**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
+2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **88**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
 4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
 
@@ -44,14 +44,14 @@ Dari audit improve yang dianalisis pada commit `89b6c5a` (era `app_dn.py`; sebel
 |------|--------------|-----------|------------|--------|
 | [013-improve1-prompt-injection.md](013-improve1-prompt-injection.md) | #1 Indirect prompt injection via screenshot | P1 | — | ⛔ BLOCKED (butuh env eksternal: game + API key; guard offline terverifikasi 2 delimiter) |
 | [014-improve2-fail-open-non-windows.md](014-improve2-fail-open-non-windows.md) | #2 Cek fokus fail-open di non-Windows | P1 | — | ✅ Verified via reconcile (2026-08-06 — fail-closed berdiri; temuan sama dengan plan 003) |
-| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 83) |
-| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 83) |
+| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 88) |
+| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 88) |
 | [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | DONE (dasar + freshness: checkout v7.0.1, setup-python v7.0.0, 2026-08-06) |
 
 ### Dependency order
 
 1. **013**, **014**, **017** — verifikasi/penyelesaian keamanan, independen, biaya kecil. Kerjakan duluan (P1).
-2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **83**.
+2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **88**.
 3. **016** adalah jaring pengaman untuk refactor arsitektur lain (010/011/015) — sudah berdiri sebelum refactor besar berikutnya.
 
 ### Rekonsiliasi dengan inventaris 001–012

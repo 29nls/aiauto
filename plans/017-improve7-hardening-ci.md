@@ -29,7 +29,7 @@
 Tag mayor (`@v4`, `@v5`) adalah referensi yang bisa berubah (re-tag/minor baru)
 — action yang dikompromikan bisa menginjeksi langkah berbahaya ke CI; token
 workflow berjalan dengan permission default. Pin ke SHA penuh + `permissions:
-contents: read` menutup kedua celah. Hardening dasar sudah ada di working tree
+contents: read` menutup kedua celah. Hardening dasar sudah ada dan ter-commit
 (sesi SBP-002/F-04); tersisa **freshness**: pin SHA/patch lama tidak menerima
 backport keamanan otomatis (enforcement pwn-request checkout 2026-06-18 masuk
 v4.4.0+).

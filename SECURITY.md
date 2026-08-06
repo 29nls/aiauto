@@ -3,7 +3,7 @@
 Dokumen hidup untuk **threat model, asumsi keamanan, mitigasi yang ada, dan status temuan**.
 Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulang temuan yang sudah tercatat**.
 
-- Stempel commit terakhir yang diaudit: `89b6c5a`
+- Stempel commit terakhir yang diaudit: `e74bc21`
 - Snapshot audit detail (metodologi & pembahasan lengkap): [`security_best_practices_report.md`](./security_best_practices_report.md) (2026-08-06)
 - Perbarui stempel commit dan status temuan setiap kali ada perubahan kode atau review baru.
 
@@ -13,7 +13,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 
 `dn_bot` (package Python; entrypoint `python -m dn_bot`) adalah script otomasi desktop Windows yang sudah ter-hardening dengan baik: input dari model (semi-trusted) melewati allowlist aksi + allowlist tombol + bounds-check koordinat + clamp durasi, cek fokus window bersifat fail-closed di Windows, dan API key tidak pernah di-log.
 
-**Tidak ada temuan Critical maupun High yang terbuka.** Sudah dimitigasi pada working tree (belum di-commit): F-01 (indirect prompt injection), F-02 (platform non-Windows ditolak — preflight + `check_target_window` fail-closed), F-03 (dependensi di-pin eksak), F-04 (CI actions di-pin SHA + least-privilege), F-05 (sanitasi judul window sebelum di-log), F-06 (detail error API dibatasi panjangnya), F-07 (actions CI di-upgrade ke major terbaru + pin SHA), F-08 (log injection via input model — aksi/nama tool/detail error SDK di-sanitasi sebelum di-log). **Tidak ada temuan terbuka.** Semua tercatat di Bagian 5.
+**Tidak ada temuan Critical maupun High yang terbuka.** Semua sudah dimitigasi dan ter-commit (2026-08-06): F-01 (indirect prompt injection), F-02 (platform non-Windows ditolak — preflight + `check_target_window` fail-closed), F-03 (dependensi di-pin eksak), F-04 (CI actions di-pin SHA + least-privilege), F-05 (sanitasi judul window sebelum di-log), F-06 (detail error API dibatasi panjangnya), F-07 (actions CI di-upgrade ke major terbaru + pin SHA), F-08 (log injection via input model — aksi/nama tool/detail error SDK di-sanitasi sebelum di-log). **Tidak ada temuan terbuka.** Semua tercatat di Bagian 5.
 
 ---
 
@@ -75,7 +75,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 
 ## 4. Mitigasi yang ada (detail + lokasi)
 
-Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode pada stempel `89b6c5a`. **Sejak restrukturisasi package `dn_bot/`, kode berpindah dari `app_dn.py` ke modul-modul:** `config.py` (konstanta/env/preflight), `safety.py` (emergency stop, cek fokus, sanitasi log), `capture.py` (screenshot/koordinat), `input_control.py` (aksi fisik), `api.py` (OpenRouter/retry/kontrak tool), `orchestrator.py` (run_dn_bot). Nama fungsi tidak berubah dan sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
+Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode pada stempel `e74bc21`. **Sejak restrukturisasi package `dn_bot/`, kode berpindah dari `app_dn.py` ke modul-modul:** `config.py` (konstanta/env/preflight), `safety.py` (emergency stop, cek fokus, sanitasi log), `capture.py` (screenshot/koordinat), `input_control.py` (aksi fisik), `api.py` (OpenRouter/retry/kontrak tool), `orchestrator.py` (run_dn_bot). Nama fungsi tidak berubah dan sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
 
 1. **Emergency stop dua lapis**
    - `check_emergency_stop` — kursor di pojok kiri atas (0–5, 0–5) → `EmergencyStop`; dicek sebelum tiap aksi, tiap interval `_safe_sleep` (0.05 s), dan tiap langkah sesi.
@@ -120,11 +120,11 @@ Tidak ada temuan terbuka per 2026-08-06 (F-01..F-07 semuanya fixed/mitigated).
 | **F-06** | Detail error API verbose ikut di-log (SBP-006) | ✅ **Fixed** — `_call_openrouter` memotong `detail` SDK ke maks 500 karakter (`API_ERROR_DETAIL_MAX`, config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError`; klasifikasi actionable (`API_ERROR_MESSAGES[kind]`) tetap utuh. Dijaga 2 tes (`error_detail`). |
 | **F-07** | Versi actions CI ketinggalan (pin SHA/patch tidak menerima backport) | ✅ **Fixed** — `actions/checkout` di-upgrade v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh di-resolve dari remote (bukan tag bergerak). Jalur v4 membawa backport BREAKING (`allow-unsafe-pr-checkout` default) sehingga lompat ke major terbaru lebih bersih. Diverifikasi actionlint + yaml-lint exit 0, 62 tes lokal lolos; run CI GitHub adalah verifikasi final. |
 | **F-08** | Log injection via input model: aksi tool call / nama tool tak dikenal / detail error SDK di-embed mentah ke pesan error yang di-log via traceback `log.exception` (F-05 hanya mencakup judul window) | ✅ **Fixed** — `_sanitize_log_text` diterapkan pada aksi (`Aksi tidak diizinkan: …` di `input_control.py` + wrapper `RuntimeError` di `orchestrator.py`), nama tool (`Tool tidak diizinkan: …` di `api.py`), dan detail error SDK (setelah truncation F-06). Dijaga 5 tes regresi; demo mekanis mengonfirmasi LEAK False untuk ketiga vektor. |
-| **F-01** | Indirect prompt injection via teks screenshot (VERIFY-001) | ✅ **Mitigated** (working tree, belum di-commit) — `SYSTEM_PROMPT` kini menandai konten gambar dengan delimiter `<untrusted_screenshot>` + larangan menuruti instruksi dari dalam gambar + aturan berhenti saat layar ambigu. Dijaga oleh 2 tes regression guard. Efektivitas terhadap model live tetap perlu verifikasi (Bagian 6). |
+| **F-01** | Indirect prompt injection via teks screenshot (VERIFY-001) | ✅ **Mitigated** (ter-commit) — `SYSTEM_PROMPT` kini menandai konten gambar dengan delimiter `<untrusted_screenshot>` + larangan menuruti instruksi dari dalam gambar + aturan berhenti saat layar ambigu. Dijaga oleh 2 tes regression guard. Efektivitas terhadap model live tetap perlu verifikasi (Bagian 6). |
 | **F-02** | Cek fokus **fail-open** di non-Windows (SBP-003) | ✅ **Fixed (fail-closed penuh)** — dua lapis: (1) `preflight_configuration` menolak platform non-Windows sebelum countdown (RuntimeError); (2) `check_target_window` sendiri kini `raise FocusLost` di non-Windows (bukan `return` diam-diam) sehingga pemanggilan programatik `run_dn_bot` tanpa preflight pun ditolak. Dijaga 2 tes. |
 | **F-03** | Dependensi runtime tidak di-pin, tanpa lock file (SBP-001) | ✅ **Fixed** — `requirements.txt` di-pin eksak (`openai==2.53.0`, `pydirectinput==1.0.4`, `mss==10.2.0`, `pillow==12.3.0`, `python-dotenv==1.2.2`), diverifikasi 51/51 tes di venv bersih; strategi lock/constraints didokumentasikan di README ("Dependensi & lock"). |
 | **F-04** | CI actions di-pin ke tag bergerak tanpa least-privilege (SBP-002) | ✅ **Fixed** — `actions/checkout` di-pin SHA `eef6144…` (v4.2.1), `actions/setup-python` di-pin SHA `a26af69…` (v5.6.0), `permissions: contents: read` di root workflow. SHA diverifikasi ulang dari remote 2026-08-06 (40-hex, persis cocok dengan tag-nya). Catatan: SHA immutable menutup tag-mutation, **tetapi pin SHA/patch lama tidak otomatis menerima backport keamanan** — enforcement pwn-request checkout (2026-06-18) masuk v4.4.0+, bukan ke pin v4.2.1; tidak eksploitabel oleh workflow ini (tanpa `pull_request_target`), tapi freshness aksi dilacak sebagai **F-07**. |
-| Semua kontrol Bagian 3.3 yang bertanda ✅ | Allowlist, bounds, fail-closed, retry aman, keyUp terjamin, secret handling | ✅ Terverifikasi pada stempel `89b6c5a` (unit test + audit `security-best-practices`). |
+| Semua kontrol Bagian 3.3 yang bertanda ✅ | Allowlist, bounds, fail-closed, retry aman, keyUp terjamin, secret handling | ✅ Terverifikasi pada stempel `e74bc21` (unit test + audit `security-best-practices`). |
 
 ### ➖ Rejected / by-design (jangan dilaporkan ulang)
 
@@ -148,6 +148,6 @@ Tidak ada temuan terbuka per 2026-08-06 (F-01..F-07 semuanya fixed/mitigated).
 ## 7. Checklist review berikutnya
 
 1. Baca file ini + `security_best_practices_report.md` — jangan ulangi 🔴/✅/➖ yang tercatat.
-2. Periksa hanya: (a) kode yang berubah sejak stempel `89b6c5a`, (b) status 🔴 yang berpindah (tidak ada yang terbuka per 2026-08-06), (c) vektor baru yang tidak ada di Bagian 3.3. (F-01…F-08 sudah mitigated/fixed; jangan dilaporkan ulang.)
+2. Periksa hanya: (a) kode yang berubah sejak stempel `e74bc21`, (b) status 🔴 yang berpindah (tidak ada yang terbuka per 2026-08-06), (c) vektor baru yang tidak ada di Bagian 3.3. (F-01…F-08 sudah mitigated/fixed; jangan dilaporkan ulang.)
 3. Setelah selesai, perbarui: stempel commit, status temuan, dan tambahkan temuan baru (jika ada) dengan ID berikutnya (F-08…).
 4. Jangan pernah menulis nilai secret ke dokumen ini — hanya `file:line` + tipe kredensial + rekomendasi rotasi.

@@ -23,6 +23,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
   - `RuntimeError` untuk error konfigurasi/platform. `EmergencyStop` dan `FocusLost` adalah subclass `RuntimeError` yang didefinisikan di `config.py`.
   - Exception domain (`EmergencyStop`/`FocusLost`) **harus bisa menembus semua lapisan**: jangan pernah menempatkan pemanggil yang bisa melemparnya di dalam `except Exception` lebar yang menelannya — re-raise eksplisit `(EmergencyStop, FocusLost)` di lapisan yang menangkapnya (`run_dn_bot`), dan gunakan `finally` (bukan `except`) untuk kompensasi (lihat pola `_press_key`). Pola anti (OVR-01) pernah terjadi: helper domain-raising di dalam blok retry `except Exception` — jangan ulangi.
   - `_call_openrouter` menangkap `Exception` **hanya** di sekitar panggilan request, mengklasifikasikan, lalu melempar `RuntimeError` (konversi, bukan penelan).
+  - **Wrapper aksi (`orchestrator.py:170`, `raise RuntimeError(...) from error`) sengaja mempertahankan chain** — bukan inkonsistensi F-06. `error` di sini hanya pesan validasi pendek (`ValueError` dari `execute_game_action`) atau error runtime `pydirectinput`, tidak pernah pesan SDK yang verbose seperti di `_call_openrouter`; `from None` (untuk log hygiene F-06) karena itu tidak diperlukan di sini, dan chain justru berguna sebagai konteks debugging. Jangan ubah menjadi `from None` tanpa alasan baru.
 
 ## Pola keselamatan (terverifikasi)
 

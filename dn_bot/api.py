@@ -216,9 +216,10 @@ def _call_openrouter(
             )
             time.sleep(delay)
 
-    # Parsing terjadi setelah loop retry (sukses) — lihat docstring
-    # `_parse_model_reply` (OVR-01: jangan menaruh helper domain-raising di
-    # dalam blok retry/except Exception lebar).
+    # Parsing happens only after the retry loop succeeded — see the
+    # `_parse_model_reply` docstring (OVR-01: never place domain-raising
+    # helpers inside a broad retry/except Exception block).
+    assert response is not None  # loop either breaks with a response or raises
     return _parse_model_reply(response)
 
 

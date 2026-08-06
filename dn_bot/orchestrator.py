@@ -109,11 +109,6 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
 
         try:
             reply = _call_openrouter(client, model, messages)
-            # Wire-shape riwayat: assistant message + tool-calls dibangun lewat
-            # kontrak (messages.py), bukan dict mentah.
-            messages.append(
-                assistant_message(reply.text, tool_calls_wire(reply.tool_requests))
-            )
         except RuntimeError as error:
             # The chained cause is suppressed in _call_openrouter (`from None`)
             # so verbose SDK details never reach this log (F-06); the message
@@ -136,6 +131,12 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
                 time.monotonic() - step_started,
             )
             return
+
+        # Wire-shape history: assistant message + tool-calls are built via the
+        # contract module (messages.py), never as raw dicts.
+        messages.append(
+            assistant_message(reply.text, tool_calls_wire(reply.tool_requests))
+        )
 
         if not reply.tool_requests:
             log.info("Model tidak meminta aksi lagi; sesi selesai.")

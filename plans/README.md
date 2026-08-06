@@ -24,7 +24,7 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 ## Urutan eksekusi yang direkomendasikan
 
 1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06).
-2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **119**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
+2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **125**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
 4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
 
@@ -44,14 +44,14 @@ Dari audit improve yang dianalisis pada commit `89b6c5a` (era `app_dn.py`; sebel
 |------|--------------|-----------|------------|--------|
 | [013-improve1-prompt-injection.md](013-improve1-prompt-injection.md) | #1 Indirect prompt injection via screenshot | P1 | — | ⛔ BLOCKED (butuh env eksternal: game + API key; guard offline terverifikasi 2 delimiter) |
 | [014-improve2-fail-open-non-windows.md](014-improve2-fail-open-non-windows.md) | #2 Cek fokus fail-open di non-Windows | P1 | — | ✅ Verified via reconcile (2026-08-06 — fail-closed berdiri; temuan sama dengan plan 003) |
-| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 119) |
-| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 119) |
+| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 125) |
+| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 125) |
 | [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | DONE (dasar + freshness: checkout v7.0.1, setup-python v7.0.0, 2026-08-06) |
 
 ### Dependency order
 
 1. **013**, **014**, **017** — verifikasi/penyelesaian keamanan, independen, biaya kecil. Kerjakan duluan (P1).
-2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **119**.
+2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **125**.
 3. **016** adalah jaring pengaman untuk refactor arsitektur lain (010/011/015) — sudah berdiri sebelum refactor besar berikutnya.
 
 ### Rekonsiliasi dengan inventaris 001–012
@@ -132,3 +132,18 @@ Kandidat dari survey read-only terakhir (setelah seluruh kandidat arsitektur 009
 - **Instruksi "jangan ubah `python-version: "3.12"`" di plan 008** superseded oleh T5 (matrix 3.10/3.12/3.14 — jangan dikembalikan); catatan drift ditambahkan di body plan 008, dan plan 017 diperluas dengan lanjutan T5.
 - **Invarian fungsional tidak berubah** oleh survey: pin SHA + least-privilege, fail-closed non-Windows, Frame determinisme, seam device, kontrak pesan, guard prompt injection (013 tetap ⛔ BLOCKED — verifikasi live masih butuh env eksternal).
 - **Perbaruan pasca-rekonsiliasi (survey baru, 2026-08-06)**: tiga kandidat kecil dikerjakan langsung tanpa plan file — CI kini membangun wheel (`pip wheel . --no-deps`), `check_emergency_stop` meneruskan `EmergencyStop`/`FocusLost` dari device seam (re-raise sebelum broad except), dan `.env.example` dibersihkan (`[TEMPLATE]` dihapus + `DN_INSTRUCTION` ditambahkan). Suite 117 → **119** (2 kasus parametrize re-raise guard); marker "kini 117" di body plan dianggap ter-cakup oleh catatan ini (churn penuh 17 file untuk +2 tidak sepadan).
+
+### Rekonsiliasi keempat (dry-run, 2026-08-06; HEAD `6b7f2b0`)
+
+Kandidat survey terakhir yang tersisa — **mode latihan `--dry-run`** (kandidat #3 dari survey read-only setelah T1–T7) — **dikirim langsung tanpa plan file baru**, konsisten dengan konvensi executed-without-plan (direkam seperti override OVR-01/02; retro-planning untuk kerja yang sudah selesai melawan konvensi inventaris). Commit `6b7f2b0`, suite **125 passed** (119 + 6 tes).
+
+| Kandidat | Yang dikirim | Commit |
+|----------|--------------|--------|
+| Dry-run rehearsal (kandidat #3) | `DryRunDevice` (implementasi kedua protocol `DeviceInput` di `device.py`): primitif fisik di-log (`[dry-run] ...`) dan direkam di `calls` tanpa dieksekusi; `position()` → `SAFE_POSITION` (100, 100) sehingga cek emergency stop asli lolos (`Ctrl+C`/fokus jendela tetap abort). `run_dn_bot(instruction, max_steps, device=PyDirectInputDevice())` meng-thread device ke `check_emergency_stop` + `execute_game_action` (non-dry-run byte-identical); flag CLI `--dry-run` menyuntikkan `DryRunDevice`. 6 tes baru, termasuk integration loop dry-run yang membuktikan `pydirectinput` tidak pernah dipanggil | `6b7f2b0` |
+
+**Status plan:** tidak ada plan baru — kandidat tuntas di commit-nya; prediksi maintenance note plan 015 (seam membuka mode dry-run produksi) terwujud dan ditandai drift note di body plan 015. **Follow-up AGENTS.md terakhir juga terverifikasi**: baseline fresh-venv PASS 2026-08-06 (125 passed di venv bersih, `pip check` bersih, wheel 0.2.0.dev0 build+install, `python -m dn_bot`/`dn-bot.exe` dari cwd luar).
+
+**Referensi basi (drift kosmetik, bukan regresi):**
+
+- **Angka tes present-tense di indeks** (urutan eksekusi, status 015/016, dependency order) → **125** (suite tumbuh via dry-run: 119 + 6 tes). Marker "kini 117/119" di body plan 001–017 dianggap ter-cakup oleh catatan ini (konvensi yang sama seperti Rekonsiliasi ketiga — churn penuh untuk delta kecil tidak sepadan).
+- **Invarian fungsional tidak berubah**: pin SHA + least-privilege, fail-closed non-Windows, Frame determinisme, seam device (kini + `DryRunDevice`), kontrak pesan, guard prompt injection (013 tetap ⛔ BLOCKED — verifikasi live butuh env eksternal).

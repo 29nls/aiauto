@@ -134,6 +134,16 @@ Machine-checkable. ALL must hold:
 
 ## Maintenance notes
 
-- Seam ini membuka mode dry-run produksi dan penggantian library input tanpa menyentuh logika aksi.
+> **Drift note (2026-08-06, dry-run terwujud)**: prediksi catatan ini
+> (seam membuka "mode dry-run produksi") kini terwujud — `DryRunDevice`
+> (implementasi kedua protocol di `device.py`) + flag CLI `--dry-run`
+> dikirim pada commit `6b7f2b0` (suite **125**). Baris "Out of scope"
+> ("Mode dry-run di produksi (recorder hanya untuk tes...)") superseded:
+> `--dry-run` menyuntikkan `DryRunDevice` ke `run_dn_bot(..., device=...)`
+> dan meng-log aksi yang dimaksud tanpa mengeksekusinya. Marker "kini 117"
+> di plan ini dianggap ter-cakup oleh catatan Rekonsiliasi keempat di
+> `plans/README.md`.
+
+- Seam ini membuka mode dry-run produksi (terwujud, lihat drift note di atas) dan penggantian library input tanpa menyentuh logika aksi.
 - Jangan memanggil `pydirectinput` langsung di luar adapter.
 - Rekonsiliasi: plan 012 (`arch4-input-device-seam.md`) di inventaris 12-temuan mencakup temuan yang sama — eksekusi salah satu, tandai yang lain REJECTED/superseded di README.

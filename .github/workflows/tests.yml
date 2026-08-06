@@ -32,6 +32,12 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Check installed dependencies
         run: python -m pip check
+      - name: Build package wheel
+        # Guards invalid pyproject.toml / broken packaging in CI: the
+        # installable-package claim (T4) is otherwise only validated textually
+        # by the drift-guard test. --no-deps keeps this fast; artifacts go to
+        # the runner temp dir, never the workspace.
+        run: python -m pip wheel . --no-deps -w $env:RUNNER_TEMP\wheels
       - name: Compile Python modules
         run: python -m compileall -q dn_bot tests
       - name: Run offline tests

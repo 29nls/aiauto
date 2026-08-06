@@ -800,6 +800,33 @@ def test_check_emergency_stop_raises_in_failsafe_corner():
     dn_bot.check_emergency_stop(RecordingDevice(position=(6, 6)))
 
 
+class _RaisingDevice:
+    """Device whose position() raises a domain error (seam simulation)."""
+
+    def __init__(self, error):
+        self.error = error
+
+    def position(self):
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        dn_bot.EmergencyStop("pojok kiri atas"),
+        dn_bot.FocusLost("fokus hilang"),
+    ],
+    ids=["emergency-stop", "focus-lost"],
+)
+def test_check_emergency_stop_propagates_domain_errors_unchanged(error):
+    """Guard: EmergencyStop/FocusLost from the device seam propagate with their
+    original instance/message — never rewrapped by the broad except (survey
+    candidate #2, mirroring the _call_openrouter re-raise pattern)."""
+    with pytest.raises(type(error), match=re.escape(str(error))) as error_info:
+        dn_bot.check_emergency_stop(_RaisingDevice(error))
+    assert error_info.value is error
+
+
 def test_backoff_sleep_aborts_immediately_on_emergency_corner():
     """Backoff sleep aborts before the first interval if the corner is already hit."""
     with patch.object(dn_bot.safety, "check_target_window"), patch.object(

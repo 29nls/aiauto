@@ -24,7 +24,7 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 ## Urutan eksekusi yang direkomendasikan
 
 1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06).
-2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **117**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
+2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **119**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
 4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
 
@@ -44,14 +44,14 @@ Dari audit improve yang dianalisis pada commit `89b6c5a` (era `app_dn.py`; sebel
 |------|--------------|-----------|------------|--------|
 | [013-improve1-prompt-injection.md](013-improve1-prompt-injection.md) | #1 Indirect prompt injection via screenshot | P1 | — | ⛔ BLOCKED (butuh env eksternal: game + API key; guard offline terverifikasi 2 delimiter) |
 | [014-improve2-fail-open-non-windows.md](014-improve2-fail-open-non-windows.md) | #2 Cek fokus fail-open di non-Windows | P1 | — | ✅ Verified via reconcile (2026-08-06 — fail-closed berdiri; temuan sama dengan plan 003) |
-| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 117) |
-| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 117) |
+| [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | DONE (2026-08-06, seam `device.py` + `RecordingDevice`; suite kini 119) |
+| [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | DONE (2026-08-06, 4 tes — item 3 aksi nyata via recorder dieksekusi setelah 015; suite kini 119) |
 | [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | DONE (dasar + freshness: checkout v7.0.1, setup-python v7.0.0, 2026-08-06) |
 
 ### Dependency order
 
 1. **013**, **014**, **017** — verifikasi/penyelesaian keamanan, independen, biaya kecil. Kerjakan duluan (P1).
-2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **117**.
+2. **015** (device port) → **016** (integration tests): keduanya SELESAI (2026-08-06). 015 menambahkan seam `device.py` + `RecordingDevice`; 016 berdiri sebelum 015, tetap hijau setelahnya, dan item 3-nya (aksi nyata via recorder, assert urutan input fisik `move_camera`/`wait`) dieksekusi setelah 015. Suite kini **119**.
 3. **016** adalah jaring pengaman untuk refactor arsitektur lain (010/011/015) — sudah berdiri sebelum refactor besar berikutnya.
 
 ### Rekonsiliasi dengan inventaris 001–012
@@ -113,7 +113,7 @@ Status plan 009–017 diperiksa ulang terhadap kode live — **semua invariant L
 
 ### Rekonsiliasi ketiga (survey T1–T7, 2026-08-06; HEAD `217b78e`)
 
-Kandidat dari survey read-only terakhir (setelah seluruh kandidat arsitektur 009–012 tuntas) **sudah dieksekusi langsung** dan di-commit (`e1bcef9`, `273e2a7`, `2866a7e`, `c377f4c`, `009fb5a`, `217b78e`) — **tanpa plan file baru**: retro-planning untuk kerja yang sudah selesai melawan konvensi inventaris, jadi dicatat seperti override OVR-01/02 (direkam, tidak diplan-kan). Suite kini **117 passed** (114 + 3 tes packaging T4).
+Kandidat dari survey read-only terakhir (setelah seluruh kandidat arsitektur 009–012 tuntas) **sudah dieksekusi langsung** dan di-commit (`e1bcef9`, `273e2a7`, `2866a7e`, `c377f4c`, `009fb5a`, `217b78e`) — **tanpa plan file baru**: retro-planning untuk kerja yang sudah selesai melawan konvensi inventaris, jadi dicatat seperti override OVR-01/02 (direkam, tidak diplan-kan). Suite kini **119 passed** (117 + 2 kasus parametrize tes re-raise guard emergency).
 
 | Kandidat | Yang dikirim | Commit |
 |----------|--------------|--------|
@@ -131,3 +131,4 @@ Kandidat dari survey read-only terakhir (setelah seluruh kandidat arsitektur 009
 - **Angka tes** di plan 001–006/008–017 (60/62/67/71/72/83/88) → **117** (suite tumbuh via survey T1–T7 + tes packaging; perintah `python -m pytest -q` tetap valid).
 - **Instruksi "jangan ubah `python-version: "3.12"`" di plan 008** superseded oleh T5 (matrix 3.10/3.12/3.14 — jangan dikembalikan); catatan drift ditambahkan di body plan 008, dan plan 017 diperluas dengan lanjutan T5.
 - **Invarian fungsional tidak berubah** oleh survey: pin SHA + least-privilege, fail-closed non-Windows, Frame determinisme, seam device, kontrak pesan, guard prompt injection (013 tetap ⛔ BLOCKED — verifikasi live masih butuh env eksternal).
+- **Perbaruan pasca-rekonsiliasi (survey baru, 2026-08-06)**: tiga kandidat kecil dikerjakan langsung tanpa plan file — CI kini membangun wheel (`pip wheel . --no-deps`), `check_emergency_stop` meneruskan `EmergencyStop`/`FocusLost` dari device seam (re-raise sebelum broad except), dan `.env.example` dibersihkan (`[TEMPLATE]` dihapus + `DN_INSTRUCTION` ditambahkan). Suite 117 → **119** (2 kasus parametrize re-raise guard); marker "kini 117" di body plan dianggap ter-cakup oleh catatan ini (churn penuh 17 file untuk +2 tidak sepadan).

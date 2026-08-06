@@ -20,6 +20,12 @@ def check_emergency_stop(
     """Stop before another action if the cursor is in the failsafe corner."""
     try:
         x, y = device.position()
+    except (EmergencyStop, FocusLost):
+        # Domain errors from the device seam must propagate unchanged (repo
+        # exception-hierarchy convention — mirroring the _call_openrouter
+        # pattern): an abort raised by the position check must never be
+        # rewrapped into a different EmergencyStop.
+        raise
     except Exception as error:
         raise EmergencyStop("Tidak dapat memeriksa posisi cursor; sesi dihentikan.") from error
     if 0 <= x <= 5 and 0 <= y <= 5:

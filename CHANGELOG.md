@@ -32,6 +32,9 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Tujuan sesi kini dapat dikonfigurasi: env `DN_INSTRUCTION` atau flag CLI `--instruction` (stdlib argparse; precedence **CLI > env > `DEFAULT_INSTRUCTION`** di config.py). Perilaku no-args tetap byte-identical dengan teks bawaan sebelumnya (temuan survey T3).
 - Preflight kini menolak `OPENROUTER_API_KEY` yang jelas tidak valid — tanpa prefix `sk-or-v1-` atau terlalu pendek (`OPENROUTER_KEY_MIN_LENGTH`), termasuk placeholder `.env.example` — dengan pesan actionable sebelum countdown, bukan menunggu 401 saat runtime (temuan survey T7).
 - Workflow CI (`tests.yml`) kini menjalankan matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan yang diklaim README; kompatibilitas wheel pin diverifikasi), plus `pip check` setelah install, `timeout-minutes: 10` per job, dan pip cache via `setup-python` — konvensi SHA penuh + least-privilege tetap (temuan survey T5).
+- Workflow CI kini membangun wheel paket (`pip wheel . --no-deps`) sehingga `pyproject.toml` yang invalid atau packaging rusak gagal di CI, bukan hanya terverifikasi tekstual oleh tes drift (temuan survey baru).
+- `check_emergency_stop` kini meneruskan `EmergencyStop`/`FocusLost` yang dilempar device seam tanpa membungkus ulang (re-raise sebelum broad `except Exception`), konsisten dengan konvensi hierarki exception / pola `_call_openrouter` (temuan survey baru).
+- `.env.example` dibersihkan (baris `[TEMPLATE]` artefak dihapus) dan menambahkan `DN_INSTRUCTION` (variabel yang didukung sejak T3); `OPENROUTER_TIMEOUT` sudah tercantum sebelumnya.
 
 ### Removed
 

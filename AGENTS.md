@@ -27,7 +27,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 ## Pola keselamatan (terverifikasi)
 
-- **`check_emergency_stop(device=...)`** — failsafe pojok kiri atas (0–5 px) via `device.position()`; dipanggil sebelum tiap aksi dan setiap tick `_safe_sleep`. Jangan pernah menonaktifkan `pydirectinput.FAILSAFE` (diatur di `device.py`).
+- **`check_emergency_stop(device=...)`** — failsafe pojok kiri atas (0–5 px) via `device.position()`; dipanggil sebelum tiap aksi dan setiap tick `_safe_sleep`. Jangan pernah menonaktifkan `pydirectinput.FAILSAFE` (diatur di `device.py`). Domain error dari device seam (`EmergencyStop`/`FocusLost`) diteruskan tanpa dibungkus ulang (re-raise sebelum broad `except Exception`, pola `_call_openrouter`).
 - **`check_target_window()`** — **fail-closed di non-Windows**: `raise FocusLost` (bukan return diam-diam), termasuk untuk pemanggilan programatik tanpa preflight. Perbandingan pakai `casefold`; judul window di-`_sanitize_log_text` **sebelum** interpolasi ke pesan yang di-log.
 - **`_safe_sleep(seconds, device=...)`** — tidur dalam interval ≤50 ms sambil re-check `check_emergency_stop(device)` + `check_target_window` tiap tick agar sesi responsif terhadap interupsi.
 - **Pola kompensasi `try/finally` `_press_key`** (WAJIB dipertahankan — `input_control.py`):
@@ -88,7 +88,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api._safe_sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
 - **Quirk env terverifikasi (Python 3.14.6/Windows, 2026-08-08)**: konstruksi client OpenAI **asli** (`OpenAI(...)`) di dalam pytest gagal dengan `ssl.SSLError: [SSL] unknown error (0xa080024)` ketika `from PIL import Image` sudah di-import DAN env di-wipe (`patch.dict(os.environ, ..., clear=True)`) — konstruksi sukses standalone maupun dengan `clear=False`. Jangan re-diagnosis: tes yang menyentuh `get_openrouter_client` memakai `patch.object(dn_bot.api, "OpenAI")` dan assert kwargs (`base_url`/`api_key`/`timeout`), bukan konstruksi client asli.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **117 tes**.
+- Jumlah target saat ini: **119 tes**.
 - `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
 - `test_integration_real_input_sequence_via_recorder` (plan 016 item 3): menjalankan `execute_game_action` **ASLI** dengan `RecordingDevice` — assert urutan input fisik (`move_camera` = anchor tengah → endpoint; `wait` = tanpa call device) dan frame yang dipakai tiap aksi; guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input.
 
@@ -102,7 +102,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - `requirements.txt`: **pin eksak `==`** (5 dependensi runtime); `requirements-dev.txt` = `-r requirements.txt` + `pytest==8.3.5`. Tanpa lockfile (keputusan sadar) → beralih ke `constraints.txt` dari `pip freeze` jika dependensi bertambah.
 - `pyproject.toml` (setuptools): memirror kelima pin runtime (tes drift mencegah divergence) dan mendeklarasikan console script `dn-bot`; `version = 0.2.0.dev0` (unreleased — naikkan saat release).
-- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan README — kompatibilitas wheel pin diverifikasi), `timeout-minutes: 10`, pip cache via `setup-python` (`cache: pip`), step `pip check` setelah install, lalu `compileall` + pytest.
+- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan README — kompatibilitas wheel pin diverifikasi), `timeout-minutes: 10`, pip cache via `setup-python` (`cache: pip`), step `pip check` setelah install, step `pip wheel . --no-deps` (validasi packaging/pyproject di CI), lalu `compileall` + pytest.
 
 ## Git & shared checkout
 
@@ -112,7 +112,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
 - [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
-- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **117 passed** (membuktikan pin versi di lingkungan bersih).
+- [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **119 passed** (membuktikan pin versi di lingkungan bersih).
 - [x] **Commit worktree** — seluruh working tree sesi ter-commit (`de000e9` + `cf1b011`..`e74bc21`, tanpa push).
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".
 - [x] **Kandidat arsitektur #1 (SELESAI — Frame module)**: global capture state (`_capture_region`/`_capture_geometry`) diganti `Frame` immutable eksplisit.

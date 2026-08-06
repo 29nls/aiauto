@@ -15,7 +15,7 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 | 005 | Potensi log injection via judul window | SBP-005 / F-05 | Low | ✅ Fixed | [005-sbp005-log-sanitization.md](005-sbp005-log-sanitization.md) — verify |
 | 006 | Detail error API dicantumkan verbatim ke log | SBP-006 / F-06 | Low | ✅ Fixed | [006-f06-limit-api-error-detail.md](006-f06-limit-api-error-detail.md) — verify |
 | 007 | Indirect prompt injection via teks screenshot | F-01 (VERIFY-001) | Medium (potensi High saat live) | ✅ Mitigated (verifikasi live belum) | [007-f01-prompt-injection-live-verification.md](007-f01-prompt-injection-live-verification.md) — runbook |
-| 008 | Versi actions CI ketinggalan (pin SHA tidak menerima backport) | F-07 | Low | 🔴 Open | [008-f07-upgrade-ci-actions.md](008-f07-upgrade-ci-actions.md) — **implement** |
+| 008 | Versi actions CI ketinggalan (pin SHA tidak menerima backport) | F-07 | Low | ✅ Fixed | [008-f07-upgrade-ci-actions.md](008-f07-upgrade-ci-actions.md) — verify |
 | 009 | Kandidat #1: global capture state → Frame module | — | — | ✅ Done | [009-arch1-frame-module.md](009-arch1-frame-module.md) — verify |
 | 010 | Kandidat #2: adapter OpenRouter hasil model polos | — | — | ⬜ Pending | [010-arch2-openrouter-plain-adapter.md](010-arch2-openrouter-plain-adapter.md) — **implement** |
 | 011 | Kandidat #3: satu module kontrak wire-shape pesan | — | — | ⬜ Pending | [011-arch3-message-contract-module.md](011-arch3-message-contract-module.md) — **implement** |
@@ -23,7 +23,7 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 
 ## Urutan eksekusi yang direkomendasikan
 
-1. **008 (F-07)** — satu-satunya item keamanan terbuka tersisa; biaya kecil, nilai langsung. (006/F-06 selesai 2026-08-06.)
+1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06). Urutan berikutnya: kandidat arsitektur (011 → 010 → 012).
 2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012 (seam input)** — kandidat arsitektur. 011 dan 010 berbagi boundary api.py; kerjakan 011 dulu agar adapter mengembalikan tipe kontrak, lalu 012 (orthogonal, menyentuh input_control.py + tes).
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
 4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
@@ -46,7 +46,7 @@ Dari audit improve yang dianalisis pada commit `89b6c5a` (era `app_dn.py`; sebel
 | [014-improve2-fail-open-non-windows.md](014-improve2-fail-open-non-windows.md) | #2 Cek fokus fail-open di non-Windows | P1 | — | TODO (sudah fail-closed; verifikasi) |
 | [015-improve3-device-port.md](015-improve3-device-port.md) | #3 Device port — coupling langsung ke pydirectinput | P2 | — | TODO (implement) |
 | [016-improve4-integration-tests.md](016-improve4-integration-tests.md) | #4 Tes integration loop end-to-end | P2 | 015 (recorder device membuatnya natural; boleh paralel) | TODO (implement) |
-| [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | TODO (dasar fixed; upgrade freshness tersisa) |
+| [017-improve7-hardening-ci.md](017-improve7-hardening-ci.md) | #7 Hardening workflow CI | P1 | — | DONE (dasar + freshness: checkout v7.0.1, setup-python v7.0.0, 2026-08-06) |
 
 ### Dependency order
 
@@ -61,7 +61,7 @@ Temuan audit improve ini **tumpang tindih** dengan inventaris 12-temuan (yang me
 - **013 ≈ 007** (F-01 prompt injection) — keduanya verifikasi live; eksekusi 013 sebagai yang mengikuti template skill, tandai 007 REJECTED/superseded.
 - **014 ≈ 003** (F-02 fail-open non-Windows) — 014 mengikuti template skill; tandai 003 REJECTED/superseded setelah 014 dieksekusi.
 - **015 ≈ 012** (arch #4 input device seam) — temuan yang sama; eksekusi 015, tandai 012 REJECTED/superseded.
-- **017 ≈ 002 + 008** (F-04 pin SHA + F-07 freshness) — 017 menggabungkan keduanya; eksekusi 017, tandai 002 dan 008 REJECTED/superseded.
+- **017 ≈ 002 + 008** (F-04 pin SHA + F-07 freshness) — 017 menggabungkan keduanya dan sudah dieksekusi (2026-08-06, upgrade v7.0.1/v7.0.0); 002 dan 008 ditandai Fixed (008), status 017 DONE.
 - **016 (integration tests)** — temuan baru, tidak ada padanan di inventaris 001–012.
 - Plan 001/004/005/006/009/010/011 di inventaris 12-temuan **tidak tersentuh** oleh batch ini.
 

@@ -1,7 +1,7 @@
 # Plan 008 — F-07: upgrade versi actions CI (implement)
 
 - **Temuan:** Pin SHA/patch lama tidak menerima backport keamanan otomatis; `checkout` v4.2.1 dan `setup-python` v5.6.0 ketinggalan. Low (tidak mendesak — trigger tanpa `pull_request_target` tidak terpapar kelas pwn-request).
-- **Status:** 🔴 Open. Plan ini = implementasi upgrade + verifikasi.
+- **Status:** ✅ **Fixed** (2026-08-06). Upgrade selesai: `checkout` v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0, 62 tes lokal lolos. Verifikasi final: run CI GitHub.
 
 ## Konteks
 
@@ -31,10 +31,10 @@ Enforcement keamanan pwn-request checkout (github.blog, 2026-06-18) masuk v4.4.0
 ## Verifikasi (machine-checkable)
 
 ```bash
-go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/tests.yml   # exit 0
-npx -y yaml-lint .github/workflows/tests.yml                                            # lint successful
-git ls-remote https://github.com/actions/checkout.git refs/tags/v7.0.1 | grep <SHA-pin> # cocok
-.venv/Scripts/python -m pytest -q                                                       # 60 passed
+go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/tests.yml   # exit 0 ✓ (terverifikasi)
+npx -y yaml-lint .github/workflows/tests.yml                                            # lint successful ✓ (terverifikasi)
+git ls-remote https://github.com/actions/checkout.git refs/tags/v7.0.1 | grep <SHA-pin> # cocok ✓
+.venv/Scripts/python -m pytest -q                                                       # 62 passed ✓
 ```
 Run CI di GitHub adalah verifikasi final (major bump tak terverifikasi lokal).
 
@@ -46,7 +46,7 @@ Run CI di GitHub adalah verifikasi final (major bump tak terverifikasi lokal).
 
 ## Rencana tes
 
-Suite 60 tes tidak berubah; verifikasi di CI. Jika major bump v7 mengubah perilaku setup-python (mis. cache default), amati run CI pertama.
+Suite 62 tes tidak berubah; verifikasi di CI. Jika major bump v7 mengubah perilaku setup-python (mis. cache default), amati run CI pertama.
 
 ## Catatan pemeliharaan
 

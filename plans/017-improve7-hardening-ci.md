@@ -22,6 +22,7 @@
 - **Category**: security
 - **Planned at**: commit `89b6c5a`, 2026-08-06 (audit improve; workflow saat itu `actions/checkout@v4` + `@v5`, tanpa `permissions:`)
 - **Issue**: omit
+- **Executed**: 2026-08-06 — freshness upgrade selesai: `checkout` v4.2.1 → v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `setup-python` v5.6.0 → v7.0.0 (`5fda3b95a4ea91299a34e894583c3862153e4b97`); actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub final.
 
 ## Why this matters
 
@@ -52,7 +53,7 @@ v4.4.0+).
 | Resolve SHA | `git ls-remote https://github.com/actions/setup-python.git refs/tags/v7.0.0` | SHA 40-hex |
 | YAML lint  | `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/tests.yml` | exit 0, no findings |
 | YAML lint  | `npx -y yaml-lint .github/workflows/tests.yml` | "YAML Lint successful" |
-| Tests      | `.venv/Scripts/python -m pytest -q` | 60 passed |
+| Tests      | `.venv/Scripts/python -m pytest -q` | 62 passed |
 
 ## Scope
 

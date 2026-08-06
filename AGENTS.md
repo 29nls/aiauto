@@ -93,7 +93,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Follow-up pending (sesi ini)
 
 - [x] **F-06 (Low — SELESAI)** — `_call_openrouter` memotong `detail` SDK ke `API_ERROR_DETAIL_MAX = 500` karakter (config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log; 2 tes regresi (detail panjang vs pendek).
-- [ ] **F-07 (Low)** — Upgrade versi actions CI: `checkout` v4.2.1 (→ minimal v4.4.0 atau v7.0.1) dan `setup-python` v5.6.0 (→ v7.0.0), resolve SHA penuh dari remote, verifikasi via run CI. Tidak mendesak: trigger `push`/`pull_request` tanpa `pull_request_target` tidak terpapar kelas pwn-request.
+- [x] **F-07 (Low — SELESAI)** — `actions/checkout` v4.2.1 → **v7.0.1** (`3d3c42e…`) dan `actions/setup-python` v5.6.0 → **v7.0.0** (`5fda3b9…`), SHA penuh dari remote; actionlint + yaml-lint exit 0; 62 tes lokal lolos; run CI GitHub adalah verifikasi final.
 - [ ] **Verifikasi fresh venv** (rencana user): `python -m venv` baru → `pip install -r requirements-dev.txt` → `pytest -q` → harapannya **60 passed** (membuktikan pin versi di lingkungan bersih).
 - [ ] **Commit worktree** — package restructure + pytest idiom + SECURITY/README/CHANGELOG/AGENTS belum di-commit.
 - [ ] **Opsional: `constraints.txt`** dari `pip freeze` untuk mengunci dependensi transitif (httpx, pydantic) — langkah lanjutan yang didokumentasikan di README "Dependensi & lock".

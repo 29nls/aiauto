@@ -32,6 +32,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Detail error API dibatasi panjangnya (maks 500 karakter, suffix `... (terpotong)`) sebelum masuk pesan error yang di-log, tanpa mengubah klasifikasi actionable (F-06/SBP-006).
 - Versi dependensi runtime di-pin eksak (`==`) di `requirements.txt`; kebijakan lock/constraints didokumentasikan (F-03/SBP-001).
 - Actions CI di-pin ke SHA commit penuh dan `permissions: contents: read` ditambahkan di workflow (F-04/SBP-002).
+- Actions CI di-upgrade ke major terbaru dengan SHA penuh dari remote: `actions/checkout` v4.2.1 → v7.0.1, `actions/setup-python` v5.6.0 → v7.0.0 (F-07).
 
 ## [0.1.0] - 2026-08-06
 

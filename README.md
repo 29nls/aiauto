@@ -33,6 +33,13 @@ python -m pip install -r requirements.txt
 copy .env.example .env
 ```
 
+Setelah virtual environment aktif, untuk menjalankan tes offline dari fresh checkout pasang dependency development yang juga memasang dependency runtime:
+
+```bat
+python -m pip install -r requirements-dev.txt
+python -m pytest -q test_app_dn.py
+```
+
 Edit `.env` secara lokal:
 
 ```dotenv
@@ -113,7 +120,8 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── app_dn.py          # Agent loop, capture, validasi, dan input
 ├── test_app_dn.py     # Tes parsing tool call
-├── requirements.txt   # Dependency Python
+├── requirements.txt   # Dependency runtime Python
+├── requirements-dev.txt # Dependency development + runtime untuk tes offline
 ├── .env.example       # Template konfigurasi; tidak berisi secret
 ├── .gitignore         # Mengecualikan .env, virtualenv, dan cache
 └── README.md
@@ -121,13 +129,15 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 
 ## Tes lokal
 
-Setelah memasang `pytest` secara lokal, jalankan:
+Aktifkan virtual environment terlebih dahulu, lalu gunakan `requirements-dev.txt` agar dependency test tercatat dan tetap terpisah dari dependency runtime:
 
 ```bat
+python -m pip install -r requirements-dev.txt
+python -m py_compile app_dn.py test_app_dn.py
 python -m pytest -q test_app_dn.py
 ```
 
-Tes ini tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak memanggil OpenRouter.
+Tes ini offline: tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak memanggil OpenRouter. GitHub Actions menjalankan compile check dan perintah pytest yang sama pada setiap push dan pull request.
 
 ## Troubleshooting
 

@@ -15,6 +15,7 @@ from .config import (
     preflight_configuration,
 )
 from .device import DryRunDevice
+from .farm import FarmSafetyStop, MINOTAUR_PROFILE
 from .orchestrator import run_dn_bot
 
 
@@ -29,6 +30,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Tujuan sesi. Precedence: flag ini > env DN_INSTRUCTION > teks "
             "bawaan (DEFAULT_INSTRUCTION)."
+        ),
+    )
+    parser.add_argument(
+        "--farm-profile",
+        choices=[MINOTAUR_PROFILE.name],
+        help="Profil farming berkelanjutan yang tersedia (saat ini: minotaur).",
+    )
+    parser.add_argument(
+        "--until-stopped",
+        action="store_true",
+        help=(
+            "Dalam profil farming, ulangi run sampai operator menghentikan "
+            "dengan Ctrl+C atau emergency stop."
         ),
     )
     parser.add_argument(
@@ -57,6 +71,8 @@ def _resolve_instruction(cli_instruction: str | None) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
+    if args.until_stopped and not args.farm_profile:
+        raise SystemExit("--until-stopped membutuhkan --farm-profile minotaur.")
     instruction = _resolve_instruction(args.instruction)
     print(
         "\nDragon Nest AI Agent\n"
@@ -79,14 +95,21 @@ def main(argv: list[str] | None = None) -> None:
         time.sleep(1)
 
     try:
+        profile = MINOTAUR_PROFILE if args.farm_profile == MINOTAUR_PROFILE.name else None
+        kwargs = {
+            "farm_profile": profile,
+            "until_stopped": args.until_stopped,
+        }
         if args.dry_run:
             # Rehearsal: same session path, but the injected device logs the
             # intended physical actions instead of performing them.
-            run_dn_bot(instruction, device=DryRunDevice())
+            run_dn_bot(instruction, device=DryRunDevice(), **kwargs)
+        elif profile is not None:
+            run_dn_bot(instruction, **kwargs)
         else:
             # Byte-identical no-args path: production adapter is the default.
             run_dn_bot(instruction)
-    except (EmergencyStop, FocusLost) as error:
+    except (EmergencyStop, FocusLost, FarmSafetyStop) as error:
         log.warning("Sesi dihentikan: %s", error)
     except KeyboardInterrupt:
         log.info("Sesi dihentikan oleh pengguna (Ctrl+C).")

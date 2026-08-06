@@ -14,6 +14,7 @@ from . import (
     capture,
     config,
     device,
+    farm,
     input_control,
     messages,
     orchestrator,
@@ -22,6 +23,7 @@ from . import (
 from .api import (
     API_ERROR_MESSAGES,
     DRAGON_NEST_TOOL,
+    MINOTAUR_TOOL,
     SYSTEM_PROMPT,
     _RETRYABLE_API_KINDS,
     _call_openrouter,
@@ -71,6 +73,7 @@ from .config import (
     preflight_configuration,
 )
 from .device import DeviceInput, DryRunDevice, PyDirectInputDevice
+from .farm import FarmProfile, FarmSafetyStop, FarmState, FarmWatchdog, MINOTAUR_PROFILE
 from .input_control import _press_key, _validate_key, execute_game_action
 from .orchestrator import _compact_messages, _new_session_id, run_dn_bot
 from .safety import (
@@ -86,6 +89,7 @@ __all__ = [
     "capture",
     "config",
     "device",
+    "farm",
     "input_control",
     "messages",
     "orchestrator",
@@ -135,6 +139,12 @@ __all__ = [
     "DeviceInput",
     "DryRunDevice",
     "PyDirectInputDevice",
+    # Farming workflow
+    "FarmProfile",
+    "FarmSafetyStop",
+    "FarmState",
+    "FarmWatchdog",
+    "MINOTAUR_PROFILE",
     # Input
     "_press_key",
     "_validate_key",
@@ -142,6 +152,7 @@ __all__ = [
     # API
     "API_ERROR_MESSAGES",
     "DRAGON_NEST_TOOL",
+    "MINOTAUR_TOOL",
     "SYSTEM_PROMPT",
     "_RETRYABLE_API_KINDS",
     "_call_openrouter",

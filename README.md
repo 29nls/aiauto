@@ -95,6 +95,24 @@ Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: mema
 
 Tujuan sesi dapat diatur lewat flag CLI `--instruction "<teks>"` atau env `DN_INSTRUCTION` di `.env` (flag CLI menang atas env). Jika keduanya tidak diatur, dipakai teks bawaan — sama persis dengan perilaku default sebelumnya.
 
+### Farming Minotaur berkelanjutan (`--farm-profile minotaur`)
+
+Untuk workflow farming yang memang diizinkan oleh game/server, gunakan profil Minotaur dengan watchdog:
+
+```bat
+python -m dn_bot --farm-profile minotaur --until-stopped
+```
+
+Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dungeon` → `combat` → `boss_reward` → `loot_chest` → `loot_result` → `return_navigation` → kembali ke `pre_dungeon`. Setelah boss mati, agent melewati pemilihan box/review, mencari peti loot di map, mengklik peti yang terlihat jelas, lalu memakai `F12` untuk membuka UI town/stage sebelum memulai run berikutnya. Setiap respons model wajib menyatakan state farming berikutnya; transisi yang tidak legal, layar ambigu, aksi berulang tanpa progres, state terlalu lama, atau recovery berulang akan menghentikan sesi dengan aman.
+
+`--until-stopped` tidak menghapus guard: emergency stop, `Ctrl+C`, fokus jendela, timeout per state, dan watchdog tetap aktif. Mode ini tidak memakai koordinat hardcoded; klik peti dan UI ditentukan dari screenshot terbaru oleh model dan tetap melewati validasi aksi yang sama. Untuk rehearsal tanpa input fisik:
+
+```bat
+python -m dn_bot --farm-profile minotaur --until-stopped --dry-run
+```
+
+Profil farming harus selalu diuji dengan `--dry-run` terlebih dahulu. Jika UI game berbeda dari alur di atas, sesi lebih baik berhenti daripada melakukan klik acak.
+
 ### Mode latihan (`--dry-run`)
 
 Untuk melatih (rehearsal) loop penuh **tanpa input fisik apa pun**, jalankan dengan flag `--dry-run`:
@@ -155,7 +173,7 @@ Function yang tersedia:
 - `left_click`
 - `right_click`
 - `press_move_key` untuk `w/a/s/d/q/e`
-- `press_action_key` untuk tombol terbatas seperti `f`, `space`, `0-9`, atau `shift`
+- `press_action_key` untuk tombol terbatas seperti `f`, `f12`, `space`, `0-9`, atau `shift`
 - `move_camera` untuk mengarahkan camera ke endpoint absolut di content game; cursor di-anchor ke titik tengah screenshot pada setiap aksi
 - `wait`
 
@@ -173,6 +191,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
 │   ├── messages.py    # Kontrak wire-shape pesan OpenAI-compatible
 │   ├── device.py      # Seam input device (protocol + adapter pydirectinput + DryRunDevice)
+│   ├── farm.py        # Profil Minotaur, state machine, dan watchdog progres
 │   ├── input_control.py # Aksi fisik tervalidasi (via device seam)
 │   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
 │   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks

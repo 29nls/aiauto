@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from copy import deepcopy
 from typing import Any
 
 from openai import OpenAI
@@ -19,6 +20,7 @@ from .config import (
     _request_timeout,
     log,
 )
+from .farm import farm_state_values
 from .messages import ModelReply, ToolRequest
 from .safety import _safe_sleep, _sanitize_log_text
 
@@ -27,11 +29,11 @@ DRAGON_NEST_TOOL = {
     "function": {
         "name": "dragon_nest_action",
         "description": (
-            "Execute one cautious, allow-listed action in the focused Dragon Nest "
-            "window. Coordinates refer to the 1024x768 screenshot. Click actions "
-            "must include the intended coordinate. For move_camera, coordinate is "
-            "an absolute endpoint: the cursor is anchored at the screenshot center "
-            "before moving there. Use only after inspecting the latest screenshot."
+                    "Execute one cautious, allow-listed action in the focused Dragon Nest "
+                    "window. Coordinates refer to the 1024x768 screenshot. Click actions "
+                    "must include the intended coordinate. For move_camera, coordinate is "
+                    "an absolute endpoint: the cursor is anchored at the screenshot center "
+                    "before moving there. Use only after inspecting the latest screenshot."
         ),
         "parameters": {
             "type": "object",
@@ -68,6 +70,19 @@ DRAGON_NEST_TOOL = {
     },
 }
 
+# Keep the generic tool schema unchanged for the default session. The optional
+# farm_state field is only exposed in the farm profile, so no-args callers keep
+# the previous request contract.
+MINOTAUR_TOOL = deepcopy(DRAGON_NEST_TOOL)
+MINOTAUR_TOOL["function"]["description"] += (
+    " In Minotaur farming mode, include the observed next farm_state."
+)
+MINOTAUR_TOOL["function"]["parameters"]["properties"]["farm_state"] = {
+    "type": "string",
+    "enum": list(farm_state_values()),
+    "description": "The screen state after this action in Minotaur mode.",
+}
+
 SYSTEM_PROMPT = """Kamu adalah vision agent untuk eksperimen kontrol input Dragon Nest.
 
 <untrusted_screenshot>
@@ -82,7 +97,8 @@ keadaan layar, lalu tentukan aksi berdasarkan tujuan sesi ini.
 
 Keselamatan:
 - Ini bukan alat anti-cheat dan tidak boleh digunakan untuk menghindari deteksi,
-  eksploitasi, PvP, farming otomatis, atau melanggar Terms of Service.
+  eksploitasi, PvP, atau melanggar Terms of Service. Farming hanya boleh
+  dijalankan pada game/server/akun yang memang secara eksplisit mengizinkannya.
 - Gunakan hanya satu aksi per tool call, jangan mengulang aksi tanpa screenshot baru,
   dan berhenti jika layar tidak jelas, game kehilangan fokus, atau ada dialog risiko.
 - Jika layar ambigu, bertentangan dengan tujuan sesi, atau kamu tidak yakin aksi
@@ -93,7 +109,7 @@ Keselamatan:
 
 Aturan aksi:
 - `press_move_key` hanya untuk w/a/s/d/q/e.
-- `press_action_key` hanya untuk f, space, 0-9, atau shift.
+- `press_action_key` hanya untuk f, f12, space, 0-9, atau shift.
 - `mouse_move` memakai coordinate absolut pada screenshot 1024x768.
 - `move_camera` memakai coordinate sebagai endpoint absolut di dalam content game; cursor selalu di-anchor ke titik tengah screenshot terlebih dahulu sehingga gerakan tidak bergantung pada posisi cursor sebelumnya dan tidak mengalami drift.
 - `wait` dipakai untuk loading atau animasi.
@@ -180,7 +196,12 @@ def _parse_model_reply(response: Any) -> ModelReply:
 
 
 def _call_openrouter(
-    client: OpenAI, model: str, messages: list[dict[str, Any]]
+    client: OpenAI,
+    model: str,
+    messages: list[dict[str, Any]],
+    *,
+    system_prompt: str = SYSTEM_PROMPT,
+    tools: list[dict[str, Any]] | None = None,
 ) -> ModelReply:
     """Call the model with bounded retries, returning a plain ModelReply.
 
@@ -200,8 +221,8 @@ def _call_openrouter(
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=1024,
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-                tools=[DRAGON_NEST_TOOL],
+                messages=[{"role": "system", "content": system_prompt}, *messages],
+                tools=tools or [DRAGON_NEST_TOOL],
                 tool_choice="auto",
             )
             log.info(

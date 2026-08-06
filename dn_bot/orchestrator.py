@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any
 
-from .api import _call_openrouter, get_openrouter_client
+from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openrouter, get_openrouter_client
 from .capture import capture_screen_base64
 from .config import (
     MAX_CONTEXT_MESSAGES,
@@ -18,6 +18,7 @@ from .config import (
     log,
 )
 from .device import DeviceInput, PyDirectInputDevice
+from .farm import FarmProfile, FarmSafetyStop, FarmWatchdog
 from .input_control import execute_game_action
 from .messages import (
     assistant_message,
@@ -77,6 +78,9 @@ def run_dn_bot(
     instruction: str,
     max_steps: int = MAX_STEPS_PER_SESSION,
     device: DeviceInput = PyDirectInputDevice(),
+    *,
+    farm_profile: FarmProfile | None = None,
+    until_stopped: bool = False,
 ) -> None:
     """Run a bounded screenshot -> OpenRouter -> validated action loop.
 
@@ -97,6 +101,10 @@ def run_dn_bot(
         raise ValueError(
             f"max_steps harus berupa integer antara 1 dan {MAX_STEPS_PER_SESSION}."
         )
+    if not isinstance(until_stopped, bool):
+        raise ValueError("until_stopped harus berupa boolean.")
+    if until_stopped and farm_profile is None:
+        raise ValueError("until_stopped membutuhkan farm_profile.")
 
     model = os.getenv("OPENROUTER_MODEL", "").strip()
     if not model:
@@ -106,22 +114,45 @@ def run_dn_bot(
         )
 
     session_id = _new_session_id()
-    log.info("Sesi %s dimulai (maks %s langkah)", session_id, max_steps)
+    watchdog = FarmWatchdog(farm_profile) if farm_profile is not None else None
+    mode_instruction = instruction
+    frame_caption = "Current screenshot."
+    system_prompt = None
+    if farm_profile is not None:
+        mode_instruction += farm_profile.instruction_suffix
+        # FarmProfile contains only the workflow extension; retain the base
+        # safety and untrusted-screenshot instructions in every mode.
+        system_prompt = SYSTEM_PROMPT + farm_profile.system_prompt
+        frame_caption = watchdog.caption()
+    limit_text = "sampai dihentikan operator" if until_stopped else f"maks {max_steps} langkah"
+    log.info("Sesi %s dimulai (%s)", session_id, limit_text)
     client = get_openrouter_client()
     frame = capture_screen_base64()
     messages: list[dict[str, Any]] = [
-        user_text(instruction),
-        frame_message(frame.encoded, "Current screenshot."),
+        user_text(mode_instruction),
+        frame_message(frame.encoded, frame_caption),
     ]
 
-    for step in range(1, max_steps + 1):
+    step = 0
+    while until_stopped or step < max_steps:
+        step += 1
         step_started = time.monotonic()
         check_emergency_stop(device)
-        log.info("Langkah %s/%s (session=%s)", step, max_steps, session_id)
+        step_limit = "∞" if until_stopped else str(max_steps)
+        log.info("Langkah %s/%s (session=%s)", step, step_limit, session_id)
         messages = _compact_messages(messages)
 
         try:
-            reply = _call_openrouter(client, model, messages)
+            if system_prompt is None:
+                reply = _call_openrouter(client, model, messages)
+            else:
+                reply = _call_openrouter(
+                    client,
+                    model,
+                    messages,
+                    system_prompt=system_prompt,
+                    tools=[MINOTAUR_TOOL],
+                )
         except RuntimeError as error:
             # The chained cause is suppressed in _call_openrouter (`from None`)
             # so verbose SDK details never reach this log (F-06); the message
@@ -152,6 +183,10 @@ def run_dn_bot(
         )
 
         if not reply.tool_requests:
+            if watchdog is not None:
+                raise FarmSafetyStop(
+                    "Model tidak mengirim aksi/state farming; sesi dihentikan aman."
+                )
             log.info("Model tidak meminta aksi lagi; sesi selesai.")
             log.info(
                 "Langkah %s selesai dalam %.1f s",
@@ -166,6 +201,12 @@ def run_dn_bot(
                 log.warning(result)
             else:
                 action = request.input.get("action")
+                if watchdog is not None:
+                    watchdog.validate_and_advance(
+                        request.input.get("farm_state"),
+                        action,
+                        request.input.get("text"),
+                    )
                 try:
                     execute_game_action(
                         action=action,
@@ -192,9 +233,11 @@ def run_dn_bot(
         # A fresh screenshot is a separate user message after the tool results.
         # This avoids asking the model to act on a stale frame.
         frame = capture_screen_base64()
-        messages.append(
-            frame_message(frame.encoded, "Current screenshot after the action.")
-        )
+        if watchdog is not None:
+            frame_caption = watchdog.caption()
+        else:
+            frame_caption = "Current screenshot after the action."
+        messages.append(frame_message(frame.encoded, frame_caption))
         messages = _compact_messages(messages)
         log.info(
             "Langkah %s selesai dalam %.1f s",
@@ -202,4 +245,7 @@ def run_dn_bot(
             time.monotonic() - step_started,
         )
 
-    log.warning("Sesi berhenti karena mencapai batas langkah.")
+    if watchdog is not None:
+        log.info("Farming berhenti setelah operator/guard menghentikan sesi.")
+    else:
+        log.warning("Sesi berhenti karena mencapai batas langkah.")

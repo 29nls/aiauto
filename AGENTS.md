@@ -8,7 +8,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 ## Arsitektur & struktur
 
-- Package `dn_bot/` (bukan script tunggal); entrypoint `python -m dn_bot` (`dn_bot/__main__.py`). Packaging setuptools di `pyproject.toml` (T4): console script `dn-bot = dn_bot.__main__:main`, `requires-python >= 3.10`, runtime `dependencies` = **mirror** `requirements.txt` (source of truth; tes drift `test_pyproject_runtime_dependencies_match_requirements_txt` memastikan keduanya sinkron — jangan edit satu tanpa yang lain).
+- Package `dn_bot/` (bukan script tunggal); entrypoint `python -m dn_bot` (`dn_bot/__main__.py`). Packaging setuptools di `pyproject.toml` (T4): console script `dn-bot = dn_bot.__main__:main`, `requires-python >= 3.10`, runtime `dependencies` = **mirror** `requirements.txt` (source of truth; tes drift `test_pyproject_runtime_dependencies_match_requirements_txt` memastikan keduanya sinkron — jangan edit satu tanpa yang lain). `dn_bot/farm.py` memiliki profil Minotaur opsional; mode default tetap loop 10 langkah, mode `--farm-profile minotaur --until-stopped` memakai state machine + watchdog.
 - DAG import **bebas-cycle**: `config` (tanpa dependensi internal), `messages` (hanya stdlib `json`/`typing`), dan `device` (hanya `pydirectinput`) ← semua; `safety` ← (config, device); `capture` ← (config, safety); `api` ← (config, messages, safety — untuk `_sanitize_log_text` pada input model/error SDK); `input_control` ← (device, safety, capture); `orchestrator` ← semua (top-level loop). Setiap modul memakai `from __future__ import annotations`.
 - `dn_bot/__init__.py` re-export API publik; `dn_bot.capture.*` adalah satu-satunya tempat patch global capture (lihat "Global state capture").
 - Tes di `tests/` (pytest), konfigurasi di `pytest.ini` (`testpaths = tests`, `pythonpath = .`) → jalankan `python -m pytest` dari root proyek.
@@ -50,7 +50,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Validasi input (semua input model = tak tepercaya)
 
 - Aksi di-allowlist keras di `execute_game_action` + skema tool (`additionalProperties: False`); `extract_tool_requests` menolak tool tak dikenal (`Tool tidak diizinkan`).
-- Tombol: `_validate_key(text, allowed)` terhadap `MOVE_KEYS` (w/a/s/d/q/e) atau `ACTION_KEYS` (f, space, 0–9, shift), di-lowercase.
+- Tombol: `_validate_key(text, allowed)` terhadap `MOVE_KEYS` (w/a/s/d/q/e) atau `ACTION_KEYS` (f, f12, space, 0–9, shift), di-lowercase.
 - Durasi: `float()` → `isfinite()` → clamp [0.05, 2.0].
 - Koordinat: dua integer (bukan bool), dalam 1024×768, **bukan** area padding letterbox, **bukan** pojok kiri atas (emergency corner).
 - `move_camera`: endpoint absolut; cursor di-anchor ke titik tengah screenshot **setiap** aksi (invariant anti-drift) — jangan ubah tanpa mengganti tes terkait.
@@ -62,7 +62,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 
 ## Orkestrasi (`orchestrator.py`)
 
-- `run_dn_bot(instruction, max_steps=10, device=PyDirectInputDevice())`: loop terbatas, **satu aksi fisik per siklus** observasi, screenshot baru sebagai pesan user setelah tiap aksi — jangan bertindak pada frame basi. Device di-inject di-thread ke `check_emergency_stop` + `execute_game_action`; `DryRunDevice` (flag `--dry-run`) melatih loop penuh tanpa input fisik.
+- `run_dn_bot(instruction, max_steps=10, device=PyDirectInputDevice())`: loop terbatas, **satu aksi fisik per siklus** observasi, screenshot baru sebagai pesan user setelah tiap aksi — jangan bertindak pada frame basi. Device di-inject di-thread ke `check_emergency_stop` + `execute_game_action`; `DryRunDevice` (flag `--dry-run`) melatih loop penuh tanpa input fisik. Jika `farm_profile=MINOTAUR_PROFILE` + `until_stopped=True`, loop memakai `FarmWatchdog` dan wajib memvalidasi state/transisi farming sebelum aksi.
 - `_compact_messages`: batasi ke `MAX_CONTEXT_MESSAGES`, pertahankan instruction awal + frame terbaru + grup assistant/tool **lengkap** (pasangan `tool_call_id`); jika turn terbaru tidak muat, berhenti (tidak fallback ke konteks yang lebih lama).
 - Retry `_call_openrouter`: maks 3 attempt (2 retry), **hanya** kind transien (`rate_limit`/`server`/`network`), backoff eksponensial (base 1.5 s). Jeda backoff memakai `_safe_sleep` sehingga **responsif terhadap emergency**: pojok failsafe + fokus jendela dicek tiap interval ≤50 ms, dan `EmergencyStop`/`FocusLost` diteruskan keluar loop (re-raise eksplisit sebelum `except Exception` — jangan klasifikasi/bungkus). Retry membungkus request, **tidak pernah** eksekusi aksi → aksi tidak pernah diulang. Error konfigurasi (auth/not_found/invalid_request) gagal cepat.
 - Observability tanpa secret: session ID (`%Y%m%d-%H%M%S` + uuid hex 6), durasi per langkah, dimensi region, latensi request. API key/token/konten percakapan tidak pernah di-log.
@@ -89,7 +89,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - **Aturan patch**: patch pada **namespace modul si pemanggil** tempat nama di-lookup saat runtime (mis. `dn_bot.input_control.check_target_window`, `dn_bot.api._safe_sleep`), bukan modul definisi. Input fisik **tidak di-patch** — inject `RecordingDevice` (seam `device.py`).
 - **Quirk env terverifikasi (Python 3.14.6/Windows, 2026-08-08)**: konstruksi client OpenAI **asli** (`OpenAI(...)`) di dalam pytest gagal dengan `ssl.SSLError: [SSL] unknown error (0xa080024)` ketika `from PIL import Image` sudah di-import DAN env di-wipe (`patch.dict(os.environ, ..., clear=True)`) — konstruksi sukses standalone maupun dengan `clear=False`. Jangan re-diagnosis: tes yang menyentuh `get_openrouter_client` memakai `patch.object(dn_bot.api, "OpenAI")` dan assert kwargs (`base_url`/`api_key`/`timeout`), bukan konstruksi client asli.
 - Loop `for` di-parametrize (`@pytest.mark.parametrize` + `ids` deskriptif); ekspektasi error pakai `pytest.raises`.
-- Jumlah target saat ini: **125 tes** (119 + 6 dry-run: 1 unit device log, 1 unit posisi aman, 2 unit flag parse/propagate, 1 unit default produksi, 1 integration loop dry-run).
+- Jumlah target saat ini: **134 tes** (125 baseline + 9 tes profil Minotaur/state machine/watchdog/F12/CLI).
 - `tests/test_integration.py`: tes **integration end-to-end loop** `run_dn_bot` — fake capture mengembalikan `Frame` nyata dengan encoded unik (bukan SimpleNamespace), fake client SDK-shaped direplay melalui adapter asli (`_call_openrouter` + kontrak `messages.py`), hanya `execute_game_action`/`check_emergency_stop`/env yang di-patch. Jaring pengaman sebelum refactor arsitektur (plan 016).
 - `test_integration_real_input_sequence_via_recorder` (plan 016 item 3): menjalankan `execute_game_action` **ASLI** dengan `RecordingDevice` — assert urutan input fisik (`move_camera` = anchor tengah → endpoint; `wait` = tanpa call device) dan frame yang dipakai tiap aksi; guard/fokus/`_safe_sleep` di-patch agar urutan fokus pada primitif input.
 
@@ -98,7 +98,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 - `.env` dimuat relatif cwd (`load_dotenv()` di `config.py`). Tanpa install, jalankan dari **root proyek** (paket ditemukan via cwd/`PYTHONPATH`); setelah `python -m pip install -e .` sekali, `python -m dn_bot` (atau console script `dn-bot`) berfungsi dari **folder mana pun** — `.env` tetap dibaca relatif cwd, jadi tetap jalankan dari folder yang berisi `.env`.
 - `preflight_configuration()` dijalankan **sebelum** countdown 5 detik: Windows, `OPENROUTER_API_KEY` (non-empty **dan format wajar**: prefix `sk-or-v1-` + panjang ≥ `OPENROUTER_KEY_MIN_LENGTH`; placeholder `.env.example` ditolak dengan pesan actionable — `_is_plausible_openrouter_key`), `OPENROUTER_MODEL`, `DN_WINDOW_TITLE`, variabel `DN_CAPTURE_*`/`DN_MONITOR`. `_int_env` memberi pesan jelas untuk nilai non-integer.
 - `DN_INSTRUCTION` (opsional) / flag CLI `--instruction`: tujuan sesi. Precedence: **flag CLI > env > `DEFAULT_INSTRUCTION`** (config.py, byte-identical dengan teks lama — perilaku no-args tidak berubah). Preflight tidak memvalidasinya (opsional, punya default); `run_dn_bot` tetap menolak instruction kosong (fail-fast).
-- Flag CLI `--dry-run` (store_true): mode latihan — `main()` menyuntikkan `DryRunDevice` ke `run_dn_bot`; tanpa flag, `run_dn_bot(instruction)` dipanggil tanpa argumen device (byte-identical, tes `test_main_plumbs_*` mengunci bentuk call ini).
+- Flag CLI `--dry-run` (store_true): mode latihan — `main()` menyuntikkan `DryRunDevice` ke `run_dn_bot`; tanpa flag, `run_dn_bot(instruction)` dipanggil tanpa argumen device (byte-identical, tes `test_main_plumbs_*` mengunci bentuk call ini). `--farm-profile minotaur --until-stopped` memilih workflow kontinu; kombinasi `--dry-run` tetap memakai device rehearsal.
 
 ## Dependensi & CI
 

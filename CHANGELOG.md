@@ -8,6 +8,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 
 ### Added
 
+- Profil farming Minotaur opsional (`--farm-profile minotaur --until-stopped`) dengan state machine eksplisit (`pre_dungeon` → `entering_dungeon` → `combat` → `boss_reward` → `loot_chest` → `loot_result` → `return_navigation`), watchdog timeout/progres, recovery terbatas, skip box/review, klik peti loot yang terlihat, dan navigasi F12. Mode `--dry-run` tetap tersedia untuk rehearsal tanpa input fisik; suite menambahkan tes state machine, watchdog, F12, dan propagasi CLI (125 → 134 tes).
 - Package `dn_bot/` baru: 6 modul bebas-cycle (`config`, `safety`, `capture`, `input_control`, `api`, `orchestrator`) + `__init__` re-export + `__main__` entrypoint, menggantikan file tunggal `app_dn.py`.
 - Konfigurasi pytest di `pytest.ini` (`testpaths = tests`, `pythonpath = .`) — `python -m pytest` berjalan tanpa argumen dari root proyek.
 - `tests/test_integration.py`: 3 tes integration end-to-end loop `run_dn_bot` (fake capture `Frame` nyata dengan encoded unik + fake client SDK-shaped direplay melalui adapter asli) — alur penuh 2 langkah, satu aksi per siklus, dan aksi siklus berikutnya dimetakan ke frame segar; jaring pengaman sebelum refactor arsitektur (plan 016).

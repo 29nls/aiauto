@@ -68,6 +68,7 @@ ACTION_KEYS = {
     "9",
     "0",
     "shift",
+    "f12",
 }
 
 

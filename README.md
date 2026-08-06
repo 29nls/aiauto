@@ -37,7 +37,7 @@ Setelah virtual environment aktif, untuk menjalankan tes offline dari fresh chec
 
 ```bat
 python -m pip install -r requirements-dev.txt
-python -m pytest -q test_app_dn.py
+python -m pytest -q tests
 ```
 
 Edit `.env` secara lokal:
@@ -51,6 +51,25 @@ DN_WINDOW_TITLE=Dragon Nest
 
 Jangan commit `.env`, karena berisi secret API. Jangan menaruh API key di source code.
 
+## Dependensi & lock
+
+`requirements.txt` memakai **pin eksak** (`==`) sebagai lock sederhana untuk kelima dependensi runtime:
+
+```text
+openai==2.53.0
+pydirectinput==1.0.4
+mss==10.2.0
+pillow==12.3.0
+python-dotenv==1.2.2
+```
+
+Aturan pemeliharaan:
+
+- **Pemasangan deterministik (top-level)** — `pip install -r requirements.txt` selalu memasang kelima dependensi runtime pada versi yang sama persis; dependensi transitif (mis. `httpx`, `pydantic` yang ditarik `openai`) tidak di-pin dan dapat berubah, kecuali dikunci lewat `constraints.txt`.
+- **`requirements-dev.txt`** menambah `pytest==8.3.5` di atas pin runtime (`-r requirements.txt`), jadi suite tes offline berjalan di versi yang identik dengan produksi.
+- **Memperbarui versi** — ubah satu pin, instal di venv bersih, lalu jalankan seluruh suite tes offline sebelum menaikkan versi berikutnya. `openai` saat ini versi 2.x; kode memakai `chat.completions.create` + `tools` yang terverifikasi oleh suite tes.
+- **Tanpa lockfile terpisah (sengaja)** — proyek hanya punya 5 dependensi runtime, pin eksak sudah cukup. Jika dependensi bertambah banyak atau CI memakai ekosistem berbeda, tambahkan `constraints.txt` dari `pip freeze` untuk mengunci versi transitif juga.
+
 ## Menjalankan
 
 1. Pastikan penggunaan bot/otomasi diizinkan oleh publisher Dragon Nest.
@@ -60,10 +79,12 @@ Jangan commit `.env`, karena berisi secret API. Jangan menaruh API key di source
 5. Jalankan:
 
 ```bat
-python app_dn.py
+python -m dn_bot
 ```
 
-Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown.
+Jalankan dari **root proyek** (folder yang berisi `.env` dan paket `dn_bot/`): `.env` dimuat relatif terhadap direktori kerja (tanpa pesan jika tidak ditemukan), dan paket `dn_bot` hanya bisa di-import jika root proyek ada di cwd/`PYTHONPATH`. Dari folder lain, perintah gagal dengan `ImportError: No module named 'dn_bot'` (atau, jika root ada di `PYTHONPATH`, preflight gagal dengan pesan env yang hilang seperti "OPENROUTER_API_KEY belum diatur").
+
+Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown. Cek fokus jendela (`check_target_window`) juga bersifat **fail-closed di non-Windows**: menolak berjalan (bukan melewati cek diam-diam), termasuk untuk pemanggilan programatik yang tidak lewat preflight.
 
 Script memberi waktu lima detik untuk memindahkan fokus ke jendela game. **Hak Administrator tidak selalu diperlukan dan tidak menjamin input akan diterima.** Jika client game berjalan dengan hak yang lebih tinggi daripada terminal, Windows dapat membatasi input lintas proses.
 
@@ -105,7 +126,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Sesi dibatasi maksimal 10 langkah.
 - Panggilan OpenRouter memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
-- Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenRouter. API key, token, dan konten percakapan tidak pernah di-log.
+- Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenRouter. API key, token, dan konten percakapan tidak pernah di-log. Judul window aktif di-sanitasi (karakter kontrol dan sekuens ANSI di-strip) sebelum masuk ke pesan log.
 
 Function yang tersedia:
 
@@ -123,10 +144,22 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 
 ```text
 .
-├── app_dn.py          # Agent loop, capture, validasi, dan input
-├── test_app_dn.py     # Tes parsing tool call
-├── requirements.txt   # Dependency runtime Python
-├── requirements-dev.txt # Dependency development + runtime untuk tes offline
+├── dn_bot/            # Package utama (python -m dn_bot)
+│   ├── __init__.py    # Re-export API publik
+│   ├── __main__.py    # Entrypoint CLI
+│   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
+│   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
+│   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
+│   ├── input_control.py # Aksi fisik tervalidasi (pydirectinput)
+│   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
+│   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks
+├── tests/             # Suite offline (pytest)
+│   ├── conftest.py
+│   └── test_dn_bot.py
+├── requirements.txt   # Dependency runtime Python (pin eksak = lock)
+├── requirements-dev.txt # Dependency development + runtime untuk tes offline (pytest di atas -r requirements.txt)
+├── pytest.ini         # Konfigurasi pytest (testpaths, pythonpath)
+├── SECURITY.md        # Threat model, asumsi trust boundary, mitigasi, status temuan
 ├── .env.example       # Template konfigurasi; tidak berisi secret
 ├── .gitignore         # Mengecualikan .env, virtualenv, dan cache
 └── README.md
@@ -138,9 +171,11 @@ Aktifkan virtual environment terlebih dahulu, lalu gunakan `requirements-dev.txt
 
 ```bat
 python -m pip install -r requirements-dev.txt
-python -m py_compile app_dn.py test_app_dn.py
-python -m pytest -q test_app_dn.py
+python -m compileall -q dn_bot tests
+python -m pytest -q tests
 ```
+
+Konfigurasi pytest ada di `pytest.ini` (`testpaths = tests`, `pythonpath = .`), jadi `python -m pytest` (tanpa argumen) juga menjalankan seluruh suite dari root proyek.
 
 Tes ini offline: tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak memanggil OpenRouter. GitHub Actions menjalankan compile check dan perintah pytest yang sama pada setiap push dan pull request.
 
@@ -148,7 +183,7 @@ Tes ini offline: tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak 
 
 ### API key tidak ditemukan
 
-Pastikan file bernama `.env` berada di folder yang sama dengan `app_dn.py`, dan berisi `OPENROUTER_API_KEY` yang valid.
+Pastikan file bernama `.env` berada di folder proyek (satu tingkat di atas paket `dn_bot/`), dan berisi `OPENROUTER_API_KEY` yang valid.
 
 ### Model tidak tersedia atau tool call gagal
 
@@ -181,5 +216,7 @@ Itu dapat terjadi karena failsafe, `Ctrl+C`, jendela kehilangan fokus, error Ope
 - Input otomatis dapat memicu aturan anti-cheat walaupun script tidak mencoba menghindarinya.
 - Publisher dapat mengubah client, keybind, UI, atau kebijakan kapan saja.
 - Tidak ada jaminan script berjalan pada semua versi/region Dragon Nest.
+
+Threat model, asumsi trust boundary, mitigasi yang ada, dan status temuan keamanan didokumentasikan di [`SECURITY.md`](SECURITY.md).
 
 Proyek ini tidak bertanggung jawab atas banned account, kehilangan progress, biaya API, kerusakan perangkat lunak, atau pelanggaran Terms of Service. Hentikan penggunaan jika publisher melarangnya.

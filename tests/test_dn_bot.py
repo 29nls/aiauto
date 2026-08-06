@@ -1,8 +1,9 @@
 import os
+import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import app_dn
+import dn_bot
 from PIL import Image
 
 
@@ -31,106 +32,92 @@ def test_openrouter_client_uses_configured_openrouter_base_url():
         {"OPENROUTER_API_KEY": "test-key"},
         clear=False,
     ):
-        client = app_dn.get_openrouter_client()
+        client = dn_bot.get_openrouter_client()
 
     assert client.api_key == "test-key"
     assert str(client.base_url).rstrip("/") == "https://openrouter.ai/api/v1"
 
 
-def test_move_camera_anchors_at_center_before_absolute_endpoint():
+def test_move_camera_anchors_at_center_before_absolute_endpoint(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
     calls = []
-    with patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn.pydirectinput, "position", return_value=(900, 700)
-    ), patch.object(app_dn.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)), patch.object(
-        app_dn.pydirectinput, "moveRel"
-    ) as move_rel, patch.object(app_dn, "_safe_sleep"), patch.object(
-        app_dn, "check_emergency_stop"
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control.pydirectinput, "position", return_value=(900, 700)
     ), patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 0, "top": 0, "width": 1024, "height": 768},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        app_dn.execute_game_action("move_camera", coordinate=[800, 600])
+        dn_bot.input_control.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)
+    ), patch.object(
+        dn_bot.input_control.pydirectinput, "moveRel"
+    ) as move_rel, patch.object(dn_bot.input_control, "_safe_sleep"), patch.object(
+        dn_bot.input_control, "check_emergency_stop"
+    ):
+        dn_bot.execute_game_action("move_camera", coordinate=[800, 600], frame=frame)
 
     assert calls == [(512, 384), (800, 600)]
     move_rel.assert_not_called()
 
 
-def test_repeated_move_camera_calls_reanchor_before_each_endpoint():
+def test_repeated_move_camera_calls_reanchor_before_each_endpoint(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
     calls = []
-    with patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn.pydirectinput, "position", return_value=(12, 700)
-    ), patch.object(app_dn.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)), patch.object(
-        app_dn, "_safe_sleep"
-    ), patch.object(app_dn, "check_emergency_stop"), patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 0, "top": 0, "width": 1024, "height": 768},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        app_dn.execute_game_action("move_camera", coordinate=[800, 600])
-        app_dn.execute_game_action("move_camera", coordinate=[200, 300])
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control.pydirectinput, "position", return_value=(12, 700)
+    ), patch.object(
+        dn_bot.input_control.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)
+    ), patch.object(
+        dn_bot.input_control, "_safe_sleep"
+    ), patch.object(dn_bot.input_control, "check_emergency_stop"):
+        dn_bot.execute_game_action("move_camera", coordinate=[800, 600], frame=frame)
+        dn_bot.execute_game_action("move_camera", coordinate=[200, 300], frame=frame)
 
     assert calls == [(512, 384), (800, 600), (512, 384), (200, 300)]
 
 
-def test_move_camera_rejects_padding_before_moving_cursor():
+def test_move_camera_rejects_padding_before_moving_cursor(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1920, "height": 1080})
     with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 0, "top": 0, "width": 1920, "height": 1080},
-    ), patch.object(app_dn, "_capture_geometry", None), patch.object(
-        app_dn, "check_target_window"
-    ), patch.object(app_dn, "check_emergency_stop"), patch.object(
-        app_dn.pydirectinput, "moveTo"
-    ) as move_to, patch.object(app_dn, "_safe_sleep"):
-        try:
-            app_dn.execute_game_action("move_camera", coordinate=[512, 95])
-        except ValueError as error:
-            assert "padding" in str(error)
-        else:
-            raise AssertionError("move_camera must reject letterbox padding")
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "check_emergency_stop"), patch.object(
+        dn_bot.input_control.pydirectinput, "moveTo"
+    ) as move_to, patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(ValueError, match="padding"):
+            dn_bot.execute_game_action("move_camera", coordinate=[512, 95], frame=frame)
 
     move_to.assert_not_called()
 
 
-def test_move_camera_rejects_missing_coordinate():
-    with patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn, "check_emergency_stop"
+def test_move_camera_rejects_missing_coordinate(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control, "check_emergency_stop"
     ):
-        try:
-            app_dn.execute_game_action("move_camera")
-        except ValueError as error:
-            assert "coordinate" in str(error)
-        else:
-            raise AssertionError("move_camera requires an endpoint")
+        with pytest.raises(ValueError, match="coordinate"):
+            dn_bot.execute_game_action("move_camera", frame=frame)
 
 
-def test_execute_game_action_rejects_invalid_duration():
-    with patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn.pydirectinput, "position", return_value=(100, 100)
+@pytest.mark.parametrize("duration", ["slow", float("nan"), float("inf")])
+def test_execute_game_action_rejects_invalid_duration(capture_region, duration):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control.pydirectinput, "position", return_value=(100, 100)
     ):
-        for duration in ("slow", float("nan"), float("inf")):
-            try:
-                app_dn.execute_game_action("wait", duration=duration)
-            except ValueError as error:
-                assert "duration" in str(error)
-            else:
-                raise AssertionError("Invalid duration should be rejected")
+        with pytest.raises(ValueError, match="duration"):
+            dn_bot.execute_game_action("wait", duration=duration, frame=frame)
 
 
-def test_run_dn_bot_rejects_non_string_instruction_and_non_integer_steps():
+@pytest.mark.parametrize(
+    "instruction,max_steps",
+    [(None, 1), ("go", 1.5)],
+)
+def test_run_dn_bot_rejects_non_string_instruction_and_non_integer_steps(
+    instruction, max_steps
+):
     with patch.dict(
         os.environ,
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
         clear=False,
     ):
-        for instruction, max_steps in ((None, 1), ("go", 1.5)):
-            try:
-                app_dn.run_dn_bot(instruction, max_steps=max_steps)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("Invalid run configuration should be rejected")
+        with pytest.raises(ValueError):
+            dn_bot.run_dn_bot(instruction, max_steps=max_steps)
 
 
 def test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls():
@@ -174,22 +161,25 @@ def test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls():
         os.environ,
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
         clear=False,
-    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
-        app_dn,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client    ), patch.object(
+        dn_bot.orchestrator,
         "capture_screen_base64",
-        side_effect=["frame-0", "frame-1", "frame-2", "frame-3"],
-    ), patch.object(app_dn, "execute_game_action"), patch.object(
-        app_dn, "check_emergency_stop"
-    ), patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn, "_safe_sleep"
+        side_effect=[
+            SimpleNamespace(encoded="frame-0"),
+            SimpleNamespace(encoded="frame-1"),
+            SimpleNamespace(encoded="frame-2"),
+            SimpleNamespace(encoded="frame-3"),
+        ],
+    ), patch.object(dn_bot.orchestrator, "execute_game_action"), patch.object(
+        dn_bot.orchestrator, "check_emergency_stop"
     ):
-        app_dn.run_dn_bot("keep this instruction", max_steps=3)
+        dn_bot.run_dn_bot("keep this instruction", max_steps=3)
 
     assert len(requests) == 3
     for index, request in enumerate(requests):
         messages = request["messages"]
-        assert len(messages) <= 1 + app_dn.MAX_CONTEXT_MESSAGES
-        assert messages[0] == {"role": "system", "content": app_dn.SYSTEM_PROMPT}
+        assert len(messages) <= 1 + dn_bot.MAX_CONTEXT_MESSAGES
+        assert messages[0] == {"role": "system", "content": dn_bot.SYSTEM_PROMPT}
         assert messages[1]["content"] == "keep this instruction"
 
         image_messages = [
@@ -253,7 +243,7 @@ def test_compaction_drops_older_turns_instead_of_newest_oversized_turn():
                         "arguments": "{}",
                     },
                 }
-                for index in range(app_dn.MAX_CONTEXT_MESSAGES)
+                for index in range(dn_bot.MAX_CONTEXT_MESSAGES)
             ],
         },
         *[
@@ -262,7 +252,7 @@ def test_compaction_drops_older_turns_instead_of_newest_oversized_turn():
                 "tool_call_id": f"new-call-{index}",
                 "content": "new result",
             }
-            for index in range(app_dn.MAX_CONTEXT_MESSAGES)
+            for index in range(dn_bot.MAX_CONTEXT_MESSAGES)
         ],
         {
             "role": "user",
@@ -273,7 +263,7 @@ def test_compaction_drops_older_turns_instead_of_newest_oversized_turn():
         },
     ]
 
-    compacted = app_dn._compact_messages(messages)
+    compacted = dn_bot._compact_messages(messages)
 
     assert compacted[0] == {"role": "user", "content": "instruction"}
     assert compacted[-1]["content"][1]["image_url"]["url"] == "frame-new"
@@ -285,7 +275,7 @@ def test_compaction_drops_older_turns_instead_of_newest_oversized_turn():
 
 
 def test_16_9_geometry_records_vertical_letterbox_padding():
-    geometry = app_dn._geometry_for_region(
+    geometry = dn_bot._geometry_for_region(
         {"left": 137, "top": 83, "width": 1920, "height": 1080}
     )
 
@@ -294,7 +284,7 @@ def test_16_9_geometry_records_vertical_letterbox_padding():
 
 
 def test_2_to_1_geometry_records_vertical_letterbox_padding():
-    geometry = app_dn._geometry_for_region(
+    geometry = dn_bot._geometry_for_region(
         {"left": 37, "top": 61, "width": 1000, "height": 500}
     )
 
@@ -304,101 +294,69 @@ def test_2_to_1_geometry_records_vertical_letterbox_padding():
 
 def test_letterbox_preserves_content_and_padding_for_16_9_image():
     image = Image.new("RGB", (16, 9), (255, 0, 0))
-    geometry = app_dn._geometry_for_region(
+    geometry = dn_bot._geometry_for_region(
         {"left": 0, "top": 0, "width": 16, "height": 9}
     )
 
-    result = app_dn._letterbox(image, geometry)
+    result = dn_bot._letterbox(image, geometry)
 
-    assert result.size == (app_dn.TARGET_WIDTH, app_dn.TARGET_HEIGHT)
+    assert result.size == (dn_bot.TARGET_WIDTH, dn_bot.TARGET_HEIGHT)
     assert result.getpixel((512, 95)) == (0, 0, 0)
     assert result.getpixel((512, 96))[0] > 200
     assert result.getpixel((512, 671))[0] > 200
     assert result.getpixel((512, 672)) == (0, 0, 0)
 
 
-def test_letterboxed_16_9_center_maps_to_nontrivial_capture_region():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 137, "top": 83, "width": 1920, "height": 1080},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        physical = app_dn._physical_point([512, 384])
+def test_letterboxed_16_9_center_maps_to_nontrivial_capture_region(capture_region):
+    frame = capture_region({"left": 137, "top": 83, "width": 1920, "height": 1080})
+
+    physical = dn_bot._physical_point([512, 384], frame)
 
     assert physical == (1097, 623)
 
 
-def test_letterboxed_padding_is_not_clickable():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 137, "top": 83, "width": 1920, "height": 1080},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        for coordinate in ([512, 95], [512, 672]):
-            try:
-                app_dn._physical_point(coordinate)
-            except ValueError as error:
-                assert "padding" in str(error)
-            else:
-                raise AssertionError("Letterbox padding must not be actionable")
+@pytest.mark.parametrize("coordinate", [[512, 95], [512, 672]], ids=["top", "bottom"])
+def test_letterboxed_padding_is_not_clickable(capture_region, coordinate):
+    frame = capture_region({"left": 137, "top": 83, "width": 1920, "height": 1080})
+
+    with pytest.raises(ValueError, match="padding"):
+        dn_bot._physical_point(coordinate, frame)
 
 
-def test_nontrivial_2_to_1_region_maps_content_edges():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 37, "top": 61, "width": 1000, "height": 500},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        assert app_dn._physical_point([512, 384]) == (537, 311)
-        assert app_dn._physical_point([0, 128]) == (37, 61)
-        assert app_dn._physical_point([1023, 639]) == (1036, 560)
+def test_nontrivial_2_to_1_region_maps_content_edges(capture_region):
+    frame = capture_region({"left": 37, "top": 61, "width": 1000, "height": 500})
+
+    assert dn_bot._physical_point([512, 384], frame) == (537, 311)
+    assert dn_bot._physical_point([0, 128], frame) == (37, 61)
+    assert dn_bot._physical_point([1023, 639], frame) == (1036, 560)
 
 
-def test_nontrivial_region_padding_is_not_clickable():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 37, "top": 61, "width": 1000, "height": 500},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        for coordinate in ([0, 127], [0, 640]):
-            try:
-                app_dn._physical_point(coordinate)
-            except ValueError as error:
-                assert "padding" in str(error)
-            else:
-                raise AssertionError("Letterbox padding must not be actionable")
+@pytest.mark.parametrize("coordinate", [[0, 127], [0, 640]], ids=["top", "bottom"])
+def test_nontrivial_region_padding_is_not_clickable(capture_region, coordinate):
+    frame = capture_region({"left": 37, "top": 61, "width": 1000, "height": 500})
+
+    with pytest.raises(ValueError, match="padding"):
+        dn_bot._physical_point(coordinate, frame)
 
 
-def test_scaled_physical_emergency_corner_is_rejected():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": 0, "top": 0, "width": 1920, "height": 1080},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        try:
-            app_dn._physical_point([0, 96])
-        except ValueError as error:
-            assert "emergency stop" in str(error)
-        else:
-            raise AssertionError("Scaled emergency corner should be rejected")
+def test_scaled_physical_emergency_corner_is_rejected(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1920, "height": 1080})
+
+    with pytest.raises(ValueError, match="emergency stop"):
+        dn_bot._physical_point([0, 96], frame)
 
 
-def test_negative_monitor_coordinates_are_not_emergency_corner():
-    with patch.object(
-        app_dn,
-        "_capture_region",
-        {"left": -1920, "top": -1080, "width": 1920, "height": 1080},
-    ), patch.object(app_dn, "_capture_geometry", None):
-        assert app_dn._physical_point([512, 384]) == (-960, -540)
+def test_negative_monitor_coordinates_are_not_emergency_corner(capture_region):
+    frame = capture_region({"left": -1920, "top": -1080, "width": 1920, "height": 1080})
+
+    assert dn_bot._physical_point([512, 384], frame) == (-960, -540)
 
 
-def test_physical_point_rejects_non_integer_coordinates():
-    try:
-        app_dn._physical_point([1.5, 10])
-    except ValueError as error:
-        assert "dua integer" in str(error)
-    else:
-        raise AssertionError("Non-integer coordinates should be rejected")
+def test_physical_point_rejects_non_integer_coordinates(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+
+    with pytest.raises(ValueError, match="dua integer"):
+        dn_bot._physical_point([1.5, 10], frame)
 
 
 def test_capture_region_reads_full_explicit_rect_from_env():
@@ -412,7 +370,7 @@ def test_capture_region_reads_full_explicit_rect_from_env():
         },
         clear=True,
     ):
-        region = app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+        region = dn_bot.capture._capture_region_from_env(SimpleNamespace(monitors=[]))
 
     assert region == {"left": 137, "top": 83, "width": 1920, "height": 1080}
 
@@ -428,7 +386,7 @@ def test_capture_region_requires_all_rect_vars():
         clear=True,
     ):
         try:
-            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+            dn_bot.capture._capture_region_from_env(SimpleNamespace(monitors=[]))
         except ValueError as error:
             assert "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT" in str(error)
         else:
@@ -447,7 +405,7 @@ def test_capture_region_rejects_non_integer_rect_value():
         clear=True,
     ):
         try:
-            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+            dn_bot.capture._capture_region_from_env(SimpleNamespace(monitors=[]))
         except ValueError as error:
             assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
             assert "lebar" in str(error)
@@ -462,7 +420,7 @@ def test_capture_region_rejects_non_integer_monitor():
         clear=True,
     ):
         try:
-            app_dn._capture_region_from_env(SimpleNamespace(monitors=[{}]))
+            dn_bot.capture._capture_region_from_env(SimpleNamespace(monitors=[{}]))
         except ValueError as error:
             assert "DN_MONITOR harus berupa bilangan bulat" in str(error)
         else:
@@ -478,7 +436,7 @@ def test_capture_region_reads_valid_monitor():
         ]
     )
     with patch.dict(os.environ, {"DN_MONITOR": "2"}, clear=True):
-        region = app_dn._capture_region_from_env(screen)
+        region = dn_bot.capture._capture_region_from_env(screen)
 
     assert region == {"left": 1920, "top": 0, "width": 1920, "height": 1080}
 
@@ -491,7 +449,7 @@ def test_capture_region_defaults_to_monitor_one():
         ]
     )
     with patch.dict(os.environ, {}, clear=True):
-        region = app_dn._capture_region_from_env(screen)
+        region = dn_bot.capture._capture_region_from_env(screen)
 
     assert region == {"left": 0, "top": 0, "width": 1920, "height": 1080}
 
@@ -505,7 +463,7 @@ def test_capture_region_rejects_monitor_out_of_range():
     )
     with patch.dict(os.environ, {"DN_MONITOR": "5"}, clear=True):
         try:
-            app_dn._capture_region_from_env(screen)
+            dn_bot.capture._capture_region_from_env(screen)
         except ValueError as error:
             assert "antara 1 dan 1" in str(error)
         else:
@@ -524,7 +482,7 @@ def test_capture_region_rejects_empty_rect_value():
         clear=True,
     ):
         try:
-            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+            dn_bot.capture._capture_region_from_env(SimpleNamespace(monitors=[]))
         except ValueError as error:
             assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
         else:
@@ -533,11 +491,11 @@ def test_capture_region_rejects_empty_rect_value():
 
 def test_int_env_returns_none_when_unset_and_no_default():
     with patch.dict(os.environ, {}, clear=True):
-        assert app_dn._int_env("DN_CAPTURE_LEFT") is None
+        assert dn_bot._int_env("DN_CAPTURE_LEFT") is None
 
 
 def test_image_block_uses_openai_compatible_image_url_data_uri():
-    block = app_dn._image_block("abc123")
+    block = dn_bot._image_block("abc123")
 
     assert block == {
         "type": "image_url",
@@ -556,7 +514,7 @@ def test_extract_tool_requests_rejects_unknown_tool():
     )
 
     try:
-        app_dn.extract_tool_requests(message)
+        dn_bot.extract_tool_requests(message)
     except ValueError as error:
         assert "Tool tidak diizinkan" in str(error)
     else:
@@ -576,7 +534,7 @@ def test_extract_tool_requests_rejects_malformed_json():
     )
 
     try:
-        app_dn.extract_tool_requests(message)
+        dn_bot.extract_tool_requests(message)
     except ValueError as error:
         assert "JSON" in str(error)
     else:
@@ -596,7 +554,7 @@ def test_extract_tool_requests_reads_openrouter_function_call():
         ]
     )
 
-    requests = app_dn.extract_tool_requests(message)
+    requests = dn_bot.extract_tool_requests(message)
 
     assert requests == [
         {
@@ -607,18 +565,18 @@ def test_extract_tool_requests_reads_openrouter_function_call():
 
 
 def test_classify_api_error_kinds():
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=401)) == "auth"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=403)) == "auth"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=404)) == "not_found"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=400)) == "invalid_request"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=422)) == "invalid_request"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=429)) == "rate_limit"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=408)) == "network"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=500)) == "server"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=503)) == "server"
-    assert app_dn._classify_api_error(_FakeAPIError(status_code=409)) == "http"
-    assert app_dn._classify_api_error(_FakeTimeoutError()) == "network"
-    assert app_dn._classify_api_error(Exception("bukan error API")) == "unknown"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=401)) == "auth"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=403)) == "auth"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=404)) == "not_found"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=400)) == "invalid_request"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=422)) == "invalid_request"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=429)) == "rate_limit"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=408)) == "network"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=500)) == "server"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=503)) == "server"
+    assert dn_bot._classify_api_error(_FakeAPIError(status_code=409)) == "http"
+    assert dn_bot._classify_api_error(_FakeTimeoutError()) == "network"
+    assert dn_bot._classify_api_error(Exception("bukan error API")) == "unknown"
 
 
 def test_call_openrouter_retries_rate_limit_then_succeeds():
@@ -633,13 +591,13 @@ def test_call_openrouter_retries_rate_limit_then_succeeds():
 
     sleeps = []
     with patch.object(
-        app_dn.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)
+        dn_bot.api.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)
     ):
-        result = app_dn._call_openrouter(_fake_client(create), "test/free", [])
+        result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
     assert result is expected
     assert attempts["count"] == 3
-    assert sleeps == [app_dn.API_RETRY_BASE_DELAY, app_dn.API_RETRY_BASE_DELAY * 2]
+    assert sleeps == [dn_bot.API_RETRY_BASE_DELAY, dn_bot.API_RETRY_BASE_DELAY * 2]
 
 
 def test_call_openrouter_stops_after_max_attempts():
@@ -649,34 +607,67 @@ def test_call_openrouter_stops_after_max_attempts():
         attempts["count"] += 1
         raise _FakeAPIError("rate limited", 429)
 
-    with patch.object(app_dn.time, "sleep"):
+    with patch.object(dn_bot.api.time, "sleep"):
         try:
-            app_dn._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
         except RuntimeError as error:
             assert "429" in str(error)
         else:
             raise AssertionError("Retries should be exhausted into a RuntimeError")
 
-    assert attempts["count"] == app_dn.API_MAX_ATTEMPTS
+    assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
 
 
-def test_call_openrouter_does_not_retry_configuration_errors():
-    for status_code, expected_text in ((401, "OPENROUTER_API_KEY"), (404, "OPENROUTER_MODEL")):
-        attempts = {"count": 0}
+@pytest.mark.parametrize(
+    "status_code,expected_text",
+    [(401, "OPENROUTER_API_KEY"), (404, "OPENROUTER_MODEL")],
+)
+def test_call_openrouter_does_not_retry_configuration_errors(status_code, expected_text):
+    attempts = {"count": 0}
 
-        def create(**payload):
-            attempts["count"] += 1
-            raise _FakeAPIError("config problem", status_code)
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeAPIError("config problem", status_code)
 
-        with patch.object(app_dn.time, "sleep"):
-            try:
-                app_dn._call_openrouter(_fake_client(create), "test/free", [])
-            except RuntimeError as error:
-                assert expected_text in str(error)
-            else:
-                raise AssertionError("Configuration errors must fail fast")
+    with patch.object(dn_bot.api.time, "sleep"):
+        with pytest.raises(RuntimeError, match=expected_text):
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
-        assert attempts["count"] == 1
+    assert attempts["count"] == 1
+
+
+def test_call_openrouter_truncates_long_error_detail():
+    long_detail = "x" * (dn_bot.config.API_ERROR_DETAIL_MAX + 100)
+
+    def create(**payload):
+        raise _FakeAPIError(long_detail, 401)
+
+    with patch.object(dn_bot.api.time, "sleep"):
+        try:
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        except RuntimeError as error:
+            truncated = long_detail[: dn_bot.config.API_ERROR_DETAIL_MAX]
+            assert "... (terpotong)" in str(error)
+            assert truncated in str(error)
+            assert long_detail not in str(error)
+        else:
+            raise AssertionError("Config errors must surface as RuntimeError")
+
+
+def test_call_openrouter_preserves_short_error_detail():
+    short_detail = "config problem"
+
+    def create(**payload):
+        raise _FakeAPIError(short_detail, 401)
+
+    with patch.object(dn_bot.api.time, "sleep"):
+        try:
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        except RuntimeError as error:
+            assert short_detail in str(error)
+            assert "terpotong" not in str(error)
+        else:
+            raise AssertionError("Config errors must surface as RuntimeError")
 
 
 def test_call_openrouter_retries_network_timeout_then_succeeds():
@@ -689,8 +680,8 @@ def test_call_openrouter_retries_network_timeout_then_succeeds():
             raise _FakeTimeoutError("timed out")
         return expected
 
-    with patch.object(app_dn.time, "sleep"):
-        result = app_dn._call_openrouter(_fake_client(create), "test/free", [])
+    with patch.object(dn_bot.api.time, "sleep"):
+        result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
     assert result is expected
     assert attempts["count"] == 2
@@ -708,16 +699,14 @@ def test_run_dn_bot_stops_after_retries_without_running_actions():
         os.environ,
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
         clear=False,
-    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
-        app_dn, "capture_screen_base64", return_value="frame"
-    ), patch.object(app_dn, "execute_game_action") as execute, patch.object(
-        app_dn, "check_emergency_stop"
-    ), patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn, "_safe_sleep"
-    ), patch.object(app_dn.time, "sleep"):
-        app_dn.run_dn_bot("go", max_steps=1)
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=SimpleNamespace(encoded="frame")
+    ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
+        dn_bot.orchestrator, "check_emergency_stop"
+    ), patch.object(dn_bot.orchestrator.time, "sleep"):
+        dn_bot.run_dn_bot("go", max_steps=1)
 
-    assert attempts["count"] == app_dn.API_MAX_ATTEMPTS
+    assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
     execute.assert_not_called()
 
 
@@ -747,29 +736,32 @@ def test_run_dn_bot_retried_call_runs_action_exactly_once():
             ]
         )
 
+    frame = SimpleNamespace(encoded="frame")
     client = _fake_client(create)
     with patch.dict(
         os.environ,
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
         clear=False,
-    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
-        app_dn, "capture_screen_base64", return_value="frame"
-    ), patch.object(app_dn, "execute_game_action") as execute, patch.object(
-        app_dn, "check_emergency_stop"
-    ), patch.object(app_dn, "check_target_window"), patch.object(
-        app_dn, "_safe_sleep"
-    ), patch.object(app_dn.time, "sleep"):
-        app_dn.run_dn_bot("go", max_steps=1)
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
+        dn_bot.orchestrator, "check_emergency_stop"
+    ), patch.object(dn_bot.orchestrator.time, "sleep"):
+        dn_bot.run_dn_bot("go", max_steps=1)
 
     assert attempts["count"] == 2
     execute.assert_called_once_with(
-        action="wait", coordinate=None, text=None, duration=app_dn.MOVE_DURATION
+        action="wait",
+        coordinate=None,
+        text=None,
+        duration=dn_bot.MOVE_DURATION,
+        frame=frame,
     )
 
 
 def test_system_prompt_marks_screenshot_content_as_untrusted():
     """Guard: screenshot content is explicitly marked untrusted with delimiters."""
-    prompt = app_dn.SYSTEM_PROMPT
+    prompt = dn_bot.SYSTEM_PROMPT
     assert "<untrusted_screenshot>" in prompt
     assert "</untrusted_screenshot>" in prompt
     assert "tidak tepercaya" in prompt.lower()
@@ -778,19 +770,61 @@ def test_system_prompt_marks_screenshot_content_as_untrusted():
 
 def test_system_prompt_stops_on_ambiguous_screen():
     """Guard: ambiguous screens must end the session without a tool call."""
-    prompt = app_dn.SYSTEM_PROMPT.lower()
+    prompt = dn_bot.SYSTEM_PROMPT.lower()
     assert "ambigu" in prompt
     assert "tidak ada tool call" in prompt
 
 
 def test_preflight_rejects_non_windows_platform():
-    with patch.object(app_dn.os, "name", "posix"):
+    with patch.object(dn_bot.config.os, "name", "posix"):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except RuntimeError as error:
             assert "Windows" in str(error)
         else:
             raise AssertionError("Non-Windows platform must be rejected")
+
+
+def test_check_target_window_fails_closed_on_non_windows():
+    with patch.object(dn_bot.safety.os, "name", "posix"):
+        try:
+            dn_bot.check_target_window()
+        except dn_bot.FocusLost as error:
+            assert "Windows" in str(error)
+        else:
+            raise AssertionError(
+                "Focus check must be fail-closed on non-Windows platforms"
+            )
+
+
+def test_sanitize_log_text_strips_ansi_and_control_chars():
+    assert dn_bot._sanitize_log_text("\x1b[31mRED\x1b[0m") == "RED"
+    assert dn_bot._sanitize_log_text("line1\nline2\tend\x07") == "line1line2end"
+    assert (
+        dn_bot._sanitize_log_text("Dragon Nest — 冒险者") == "Dragon Nest — 冒险者"
+    )
+
+
+def test_check_target_window_sanitizes_hostile_window_title():
+    import ctypes
+
+    user32 = ctypes.windll.user32
+
+    def _write_title(_hwnd, buf, _length):
+        buf.value = "\x1b[31mOther Window\x1b[0m"
+
+    with patch.dict(os.environ, {"DN_WINDOW_TITLE": "Dragon Nest"}), patch.object(
+        user32, "GetForegroundWindow", return_value=1
+    ), patch.object(user32, "GetWindowTextLengthW", return_value=40), patch.object(
+        user32, "GetWindowTextW", side_effect=_write_title
+    ):
+        try:
+            dn_bot.check_target_window()
+        except dn_bot.FocusLost as error:
+            assert "\x1b" not in str(error)
+            assert "Other Window" in str(error)
+        else:
+            raise AssertionError("Focus mismatch must raise FocusLost")
 
 
 def test_preflight_requires_openrouter_api_key():
@@ -803,7 +837,7 @@ def test_preflight_requires_openrouter_api_key():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except RuntimeError as error:
             assert "OPENROUTER_API_KEY" in str(error)
         else:
@@ -820,7 +854,7 @@ def test_preflight_requires_openrouter_model():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except RuntimeError as error:
             assert "OPENROUTER_MODEL" in str(error)
         else:
@@ -834,7 +868,7 @@ def test_preflight_requires_window_title():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except RuntimeError as error:
             assert "DN_WINDOW_TITLE" in str(error)
         else:
@@ -855,7 +889,7 @@ def test_preflight_rejects_partial_capture_rect():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except ValueError as error:
             assert "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT" in str(error)
         else:
@@ -877,7 +911,7 @@ def test_preflight_rejects_non_integer_capture_value():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except ValueError as error:
             assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
         else:
@@ -896,7 +930,7 @@ def test_preflight_rejects_invalid_monitor():
         clear=True,
     ):
         try:
-            app_dn.preflight_configuration()
+            dn_bot.preflight_configuration()
         except ValueError as error:
             assert "DN_MONITOR harus berupa bilangan bulat" in str(error)
         else:
@@ -913,12 +947,12 @@ def test_preflight_accepts_valid_configuration():
         },
         clear=True,
     ):
-        app_dn.preflight_configuration()
+        dn_bot.preflight_configuration()
 
 
 def test_new_session_id_is_unique_and_log_safe():
-    first = app_dn._new_session_id()
-    second = app_dn._new_session_id()
+    first = dn_bot._new_session_id()
+    second = dn_bot._new_session_id()
     assert first != second
     assert len(first) >= 8
     assert all(ch.isalnum() or ch == "-" for ch in first)
@@ -930,9 +964,9 @@ def test_call_openrouter_logs_request_latency():
 
     calls = []
     with patch.object(
-        app_dn.log, "info", side_effect=lambda *args: calls.append(args)
+        dn_bot.api.log, "info", side_effect=lambda *args: calls.append(args)
     ):
-        app_dn._call_openrouter(_fake_client(create), "test/free", [])
+        dn_bot._call_openrouter(_fake_client(create), "test/free", [])
 
     assert any(
         isinstance(args[0], str) and "OpenRouter request selesai" in args[0]

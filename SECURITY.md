@@ -11,9 +11,9 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 
 ## 1. Ringkasan eksekutif
 
-`app_dn.py` adalah script otomasi desktop Windows yang sudah ter-hardening dengan baik: input dari model (semi-trusted) melewati allowlist aksi + allowlist tombol + bounds-check koordinat + clamp durasi, cek fokus window bersifat fail-closed di Windows, dan API key tidak pernah di-log.
+`dn_bot` (package Python; entrypoint `python -m dn_bot`) adalah script otomasi desktop Windows yang sudah ter-hardening dengan baik: input dari model (semi-trusted) melewati allowlist aksi + allowlist tombol + bounds-check koordinat + clamp durasi, cek fokus window bersifat fail-closed di Windows, dan API key tidak pernah di-log.
 
-**Tidak ada temuan Critical maupun High yang terbuka.** Sudah dimitigasi pada working tree (belum di-commit): F-01 (indirect prompt injection), F-02 (platform non-Windows ditolak di preflight startup), F-03 (dependensi di-pin eksak), F-04 (CI actions di-pin SHA + least-privilege). Yang terbuka: 2 Low ops (F-05, F-06). Semua tercatat di Bagian 5.
+**Tidak ada temuan Critical maupun High yang terbuka.** Sudah dimitigasi pada working tree (belum di-commit): F-01 (indirect prompt injection), F-02 (platform non-Windows ditolak — preflight + `check_target_window` fail-closed), F-03 (dependensi di-pin eksak), F-04 (CI actions di-pin SHA + least-privilege), F-05 (sanitasi judul window sebelum di-log), F-06 (detail error API dibatasi panjangnya). Yang terbuka: 1 Low op (F-07 — freshness versi actions CI). Semua tercatat di Bagian 5.
 
 ---
 
@@ -29,7 +29,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 | **Pengguna operator** | Trusted | Emergency stop + batas langkah adalah jaring pengaman kesalahan, bukan proteksi terhadap operator. |
 
 **Asumsi platform & operasi:**
-- **Windows-only.** `preflight_configuration` menolak platform non-Windows saat startup (F-02 mitigated di jalur utama); `check_target_window` sendiri masih fail-open untuk pemanggilan programatik tanpa preflight (follow-up opsional tercatat di F-02).
+- **Windows-only.** `preflight_configuration` menolak platform non-Windows saat startup, dan `check_target_window` sendiri bersifat fail-closed di non-Windows (`raise FocusLost`) — pemanggilan programatik tanpa preflight juga ditolak (F-02 fixed).
 - Bot dijalankan **dengan pengawasan operator**, bukan headless/unattended.
 - Ini **eksperimen, bukan alat produksi**; input sintetis bisa memicu anti-cheat walau tidak menghindarinya.
 - Model yang digunakan adalah model OpenRouter (disarankan `:free`) yang mendukung vision + tool calling.
@@ -62,7 +62,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 | Koordinat di luar gambar / di padding / di area stop | Bounds 1024×768 + tolak padding + tolak pojok 0–5 | `_physical_point` | ✅ |
 | Tombol tak diizinkan | Allowlist `MOVE_KEYS` / `ACTION_KEYS` | `_validate_key` | ✅ |
 | Durasi ekstrem / non-finite | Clamp 0.05–2.0, tolak `NaN`/`inf` | `execute_game_action` | ✅ |
-| Input ke aplikasi salah | Cek fokus fail-closed (`DN_WINDOW_TITLE` wajib) | `check_target_window` | ⚠️ fail-open non-Windows (F-02) |
+| Input ke aplikasi salah | Cek fokus fail-closed (`DN_WINDOW_TITLE` wajib); non-Windows ditolak eksplisit | `check_target_window` | ✅ (F-02 fixed — fail-closed penuh) |
 | Aksi berulang / replikasi | 1 aksi per screenshot; sesi ≤ 10 langkah; retry hanya membungkus *request*, bukan aksi | `run_dn_bot`, `_call_openrouter` | ✅ |
 | Tombol macet tertekan | `try/finally` menjamin `keyUp` | `_press_key` | ✅ |
 | Key/secret bocor ke log | Key hanya dari env; tidak pernah di-log | `get_openrouter_client` | ✅ |
@@ -74,7 +74,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 
 ## 4. Mitigasi yang ada (detail + lokasi)
 
-Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk `app_dn.py` pada stempel `89b6c5a`. Nama fungsi sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
+Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode pada stempel `89b6c5a`. **Sejak restrukturisasi package `dn_bot/`, kode berpindah dari `app_dn.py` ke modul-modul:** `config.py` (konstanta/env/preflight), `safety.py` (emergency stop, cek fokus, sanitasi log), `capture.py` (screenshot/koordinat), `input_control.py` (aksi fisik), `api.py` (OpenRouter/retry/kontrak tool), `orchestrator.py` (run_dn_bot). Nama fungsi tidak berubah dan sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
 
 1. **Emergency stop dua lapis**
    - `check_emergency_stop` — kursor di pojok kiri atas (0–5, 0–5) → `EmergencyStop`; dicek sebelum tiap aksi, tiap interval `_safe_sleep` (0.05 s), dan tiap langkah sesi.
@@ -88,8 +88,13 @@ Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk `app_d
 7. **Secret handling** — key dibaca dari env saja, `.env` di-gitignore, `.env.example` tanpa secret; tidak ada secret di source code atau log.
 8. **Boundary konteks** — `_compact_messages` menjaga `MAX_CONTEXT_MESSAGES=8` sambil mempertahankan grup assistant/tool yang valid dan frame terkini.
 9. **Penanganan error eksplisit** — `EmergencyStop`/`FocusLost` (subclass `RuntimeError`) di-re-raise, tidak tertelan `except Exception`; error API diklasifikasi ke pesan user-facing Bahasa Indonesia yang actionable.
-10. **Mitigasi indirect prompt injection (F-01)** — `SYSTEM_PROMPT` menandai konten screenshot dengan delimiter `<untrusted_screenshot>`: teks dalam gambar dinyatakan sebagai **data tidak tepercaya, bukan instruksi**, larangan menuruti instruksi dari dalam gambar, dan aturan berhenti saat layar ambigu (tanpa tool call). Dijaga 2 tes regression guard (`test_app_dn.py`). Efektivitas terhadap model live tetap perlu verifikasi.
+10. **Mitigasi indirect prompt injection (F-01)** — `SYSTEM_PROMPT` menandai konten screenshot dengan delimiter `<untrusted_screenshot>`: teks dalam gambar dinyatakan sebagai **data tidak tepercaya, bukan instruksi**, larangan menuruti instruksi dari dalam gambar, dan aturan berhenti saat layar ambigu (tanpa tool call). Dijaga 2 tes regression guard (`tests/test_dn_bot.py`). Efektivitas terhadap model live tetap perlu verifikasi.
 11. **Preflight startup (F-02)** — `preflight_configuration` menolak platform non-Windows dan memvalidasi `OPENROUTER_API_KEY`/`OPENROUTER_MODEL`/`DN_WINDOW_TITLE`/`DN_CAPTURE_*`/`DN_MONITOR` **sebelum countdown 5 detik**; miskonfigurasi gagal cepat dengan pesan jelas dan exit code 1. Validasi env capture terpusat di `_validate_capture_env` (dipakai preflight dan `_capture_region_from_env`). Dijaga 8 tes.
+    - **Fail-closed lapis kedua (F-02)** — `check_target_window` sendiri `raise FocusLost` di non-Windows (dulu `return` diam-diam), jadi pemanggilan programatik `run_dn_bot` tanpa preflight juga ditolak. Dijaga 1 tes.
+12. **Lock dependensi (F-03/SBP-001)** — `requirements.txt` di-pin eksak (`==`) untuk kelima dependensi runtime; `requirements-dev.txt` hanya menambah `pytest==8.3.5` di atas `-r requirements.txt`. Strategi dan aturan pembaruan didokumentasikan di README ("Dependensi & lock"); lockfile terpisah sengaja tidak dipakai karena hanya 5 dependensi — pin eksak sudah cukup.
+13. **CI supply-chain (F-04/SBP-002)** — `actions/checkout` & `actions/setup-python` di-pin SHA penuh (bukan tag bergerak), `permissions: contents: read` di root workflow, hanya satu workflow (`tests.yml`). Pin SHA menutup tag-mutation; pin SHA/patch lama tidak menerima backport keamanan otomatis → freshness aksi dilacak sebagai **F-07**.
+14. **Sanitasi log (F-05/SBP-005)** — `_sanitize_log_text` menghapus karakter kontrol (C0 + C1 + DEL) dan sekuens ANSI CSI (`\x1b[...`) dari judul window aktif **sebelum** diinterpolasi ke pesan `FocusLost` yang di-log, mencegah terminal log injection. Dijaga 2 tes (unit sanitizer + integrasi ctypes).
+15. **Batasi detail error API (F-06/SBP-006)** — `_call_openrouter` memotong `detail` SDK ke maks `API_ERROR_DETAIL_MAX = 500` karakter dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError` yang di-log — mencegah log berisik dan metadata request tersimpan verbatim. Klasifikasi actionable (`API_ERROR_MESSAGES[kind]`) tidak tersentuh. Dijaga 2 tes (detail panjang terpotong; detail pendek utuh).
 
 ---
 
@@ -104,18 +109,19 @@ Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk `app_d
 | ID | Temuan | Severity | Bukti | Aksi yang disarankan |
 |---|---|---|---|---|
 
-| **F-05** | Log injection via judul window: `title_buffer.value!r` diinterpolasi mentah ke pesan lalu di-log (SBP-005) | Low | `check_target_window` (baris ~122–127) | Strip karakter kontrol (ESC/newline) sebelum interpolasi. |
-| **F-06** | Detail error API verbose ikut di-log (SBP-006) | Low | `_call_openrouter` (`detail = ...`; `log.exception`) | Batasi panjang detail (mis. 500 karakter). |
+| **F-07** | Versi actions CI ketinggalan: `actions/checkout` v4.2.1 (terbaru di jalur v4 = v4.4.0, global v7.0.1) dan `actions/setup-python` v5.6.0 (terbaru v7.0.0); pin SHA/patch **tidak menerima backport keamanan otomatis** | Low | `.github/workflows/tests.yml` (`uses:` baris 15, 17) | Upgrade minimal ke jalur v4 terbaru (`checkout` v4.4.0) atau major terbaru (v7.0.1 / v7.0.0) dengan resolve SHA penuh dari remote, lalu verifikasi via run CI. Tidak mendesak: trigger `push`/`pull_request` tanpa `pull_request_target` tidak terpapar kelas pwn-request. |
 
 ### ✅ Fixed / sudah benar (jangan dilaporkan ulang)
 
 | ID | Temuan lama | Status |
 |---|---|---|
 | **SBP-004** | Parsing env raw `int(os.getenv(...))` tanpa pesan jelas | ✅ **Fixed** — `_int_env` (baris 139) fail-fast dengan pesan jelas; laporan lama menulis sebelum fix ini. |
+| **F-05** | Log injection via judul window: `title_buffer.value!r` diinterpolasi mentah ke pesan lalu di-log (SBP-005) | ✅ **Fixed** — `_sanitize_log_text` (sebelum `check_target_window`) menghapus karakter kontrol (C0/C1/DEL) + sekuens ANSI CSI dari judul window aktif sebelum diinterpolasi ke pesan `FocusLost`; sanitasi dilakukan sebelum perbandingan casefold. Dijaga 2 tes. |
+| **F-06** | Detail error API verbose ikut di-log (SBP-006) | ✅ **Fixed** — `_call_openrouter` memotong `detail` SDK ke maks 500 karakter (`API_ERROR_DETAIL_MAX`, config.py) dengan suffix `... (terpotong)` sebelum masuk pesan `RuntimeError`; klasifikasi actionable (`API_ERROR_MESSAGES[kind]`) tetap utuh. Dijaga 2 tes (`error_detail`). |
 | **F-01** | Indirect prompt injection via teks screenshot (VERIFY-001) | ✅ **Mitigated** (working tree, belum di-commit) — `SYSTEM_PROMPT` kini menandai konten gambar dengan delimiter `<untrusted_screenshot>` + larangan menuruti instruksi dari dalam gambar + aturan berhenti saat layar ambigu. Dijaga oleh 2 tes regression guard. Efektivitas terhadap model live tetap perlu verifikasi (Bagian 6). |
-| **F-02** | Cek fokus **fail-open** di non-Windows (SBP-003) | ✅ **Mitigated di jalur startup** — `preflight_configuration` menolak platform non-Windows sebelum countdown dengan pesan jelas (dijaga 1 tes). Catatan: `check_target_window` masih `return` diam-diam untuk pemanggilan programatik `run_dn_bot` tanpa preflight — fail-closed penuh di fungsi itu adalah follow-up opsional. |
-| **F-03** | Dependensi runtime tidak di-pin, tanpa lock file (SBP-001) | ✅ **Fixed** — `requirements.txt` di-pin eksak (`openai==2.53.0`, `pydirectinput==1.0.4`, `mss==10.2.0`, `pillow==12.3.0`, `python-dotenv==1.2.2`), diverifikasi 41/41 tes di venv bersih. |
-| **F-04** | CI actions di-pin ke tag bergerak tanpa least-privilege (SBP-002) | ✅ **Fixed** — `actions/checkout` di-pin SHA `eef6144…` (v4.2.1), `actions/setup-python` di-pin SHA `a26af69…` (v5.6.0), `permissions: contents: read` ditambahkan. |
+| **F-02** | Cek fokus **fail-open** di non-Windows (SBP-003) | ✅ **Fixed (fail-closed penuh)** — dua lapis: (1) `preflight_configuration` menolak platform non-Windows sebelum countdown (RuntimeError); (2) `check_target_window` sendiri kini `raise FocusLost` di non-Windows (bukan `return` diam-diam) sehingga pemanggilan programatik `run_dn_bot` tanpa preflight pun ditolak. Dijaga 2 tes. |
+| **F-03** | Dependensi runtime tidak di-pin, tanpa lock file (SBP-001) | ✅ **Fixed** — `requirements.txt` di-pin eksak (`openai==2.53.0`, `pydirectinput==1.0.4`, `mss==10.2.0`, `pillow==12.3.0`, `python-dotenv==1.2.2`), diverifikasi 51/51 tes di venv bersih; strategi lock/constraints didokumentasikan di README ("Dependensi & lock"). |
+| **F-04** | CI actions di-pin ke tag bergerak tanpa least-privilege (SBP-002) | ✅ **Fixed** — `actions/checkout` di-pin SHA `eef6144…` (v4.2.1), `actions/setup-python` di-pin SHA `a26af69…` (v5.6.0), `permissions: contents: read` di root workflow. SHA diverifikasi ulang dari remote 2026-08-06 (40-hex, persis cocok dengan tag-nya). Catatan: SHA immutable menutup tag-mutation, **tetapi pin SHA/patch lama tidak otomatis menerima backport keamanan** — enforcement pwn-request checkout (2026-06-18) masuk v4.4.0+, bukan ke pin v4.2.1; tidak eksploitabel oleh workflow ini (tanpa `pull_request_target`), tapi freshness aksi dilacak sebagai **F-07**. |
 | Semua kontrol Bagian 3.3 yang bertanda ✅ | Allowlist, bounds, fail-closed, retry aman, keyUp terjamin, secret handling | ✅ Terverifikasi pada stempel `89b6c5a` (unit test + audit `security-best-practices`). |
 
 ### ➖ Rejected / by-design (jangan dilaporkan ulang)
@@ -123,7 +129,7 @@ Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk `app_d
 | ID | Item | Alasan |
 |---|---|---|
 | **OVR-01** | Retry memakai `time.sleep` polos, bukan `_safe_sleep` | Disengaja: `_safe_sleep` melempar `EmergencyStop`/`FocusLost` (subclass `RuntimeError`) yang akan tertelan `except Exception` di `_call_openrouter` dan salah diklasifikasi sebagai error API. |
-| **OVR-02** | Fail-open non-Windows | Konsisten dengan README (Windows-only), tapi **tidak didokumentasikan sebagai override di kode** → status sebenarnya tetap 🔴 F-02. |
+| **OVR-02** | Fail-open non-Windows | **Superseded** — F-02 kini fail-closed penuh (preflight + `check_target_window`); tidak ada lagi jalur yang berjalan di non-Windows tanpa penolakan eksplisit. |
 | **BYD-01** | `move_camera` dua panggilan `moveTo` (center → target) | Keputusan terdokumentasi (komentar kode + README): anchor ke tengah agar tak bergantung posisi cursor sebelumnya dan tak menumpuk drift. |
 | **BYD-02** | Screenshot berisi konten pemain lain (chat, nama akun) dikirim ke OpenRouter | Risiko privasi Low yang diterima: data hanya dikirim ke OpenRouter (HTTPS), bukan publik; operator memilih region capture. |
 
@@ -140,6 +146,6 @@ Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk `app_d
 ## 7. Checklist review berikutnya
 
 1. Baca file ini + `security_best_practices_report.md` — jangan ulangi 🔴/✅/➖ yang tercatat.
-2. Periksa hanya: (a) kode yang berubah sejak stempel `89b6c5a`, (b) status 🔴 yang berpindah (F-05, F-06), (c) vektor baru yang tidak ada di Bagian 3.3. (F-01…F-04 sudah mitigated; jangan dilaporkan ulang.)
-3. Setelah selesai, perbarui: stempel commit, status temuan, dan tambahkan temuan baru (jika ada) dengan ID berikutnya (F-07…).
+2. Periksa hanya: (a) kode yang berubah sejak stempel `89b6c5a`, (b) status 🔴 yang berpindah (F-07), (c) vektor baru yang tidak ada di Bagian 3.3. (F-01…F-06 sudah mitigated; jangan dilaporkan ulang.)
+3. Setelah selesai, perbarui: stempel commit, status temuan, dan tambahkan temuan baru (jika ada) dengan ID berikutnya (F-08…).
 4. Jangan pernah menulis nilai secret ke dokumen ini — hanya `file:line` + tipe kredensial + rekomendasi rotasi.

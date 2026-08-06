@@ -46,6 +46,12 @@ DEFAULT_INSTRUCTION = (
     "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
     "Jika tujuan tidak jelas, jangan melakukan aksi."
 )
+# Cheap shape guard for the OpenRouter key in preflight (T7). Deliberately
+# conservative: only catches clearly-invalid values (missing prefix, the
+# .env.example placeholder, or far too short); real OpenRouter keys are far
+# longer than OPENROUTER_KEY_MIN_LENGTH.
+OPENROUTER_KEY_PREFIX = "sk-or-v1-"
+OPENROUTER_KEY_MIN_LENGTH = 40
 
 MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
 ACTION_KEYS = {
@@ -102,6 +108,20 @@ def _int_env(name: str, default: Optional[str] = None) -> Optional[int]:
         raise ValueError(
             f"{name} harus berupa bilangan bulat, bukan {raw!r}."
         ) from None
+
+
+def _is_plausible_openrouter_key(value: str) -> bool:
+    """Cheap shape check: expected prefix plus a reasonable minimum length.
+
+    Never rejects a real OpenRouter key (those are far longer than
+    ``OPENROUTER_KEY_MIN_LENGTH``); it only catches clearly-invalid values
+    such as the ``.env.example`` placeholder so preflight can fail fast
+    instead of discovering a 401 at runtime.
+    """
+    return (
+        value.startswith(OPENROUTER_KEY_PREFIX)
+        and len(value) >= OPENROUTER_KEY_MIN_LENGTH
+    )
 
 
 def _request_timeout() -> int:
@@ -172,10 +192,17 @@ def preflight_configuration() -> None:
             "Script ini hanya mendukung Windows: cek fokus jendela dan input "
             "fisik bergantung pada API Windows. Jalankan pada Windows 10/11."
         )
-    if not os.getenv("OPENROUTER_API_KEY", "").strip():
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
         raise RuntimeError(
             "OPENROUTER_API_KEY belum diatur. Copy .env.example menjadi .env "
             "dan isi API key secara lokal."
+        )
+    if not _is_plausible_openrouter_key(api_key):
+        raise RuntimeError(
+            "OPENROUTER_API_KEY tampak tidak valid: harus diawali 'sk-or-v1-' "
+            "dengan panjang minimal yang wajar. Isi API key OpenRouter asli di "
+            ".env — jangan memakai placeholder dari .env.example."
         )
     if not os.getenv("OPENROUTER_MODEL", "").strip():
         raise RuntimeError(

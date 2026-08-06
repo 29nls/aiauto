@@ -22,6 +22,10 @@ class _FakeTimeoutError(Exception):
     """Mirrors openai.APITimeoutError: no status_code attribute."""
 
 
+# Realistic OpenRouter key shape that passes the preflight format check (T7).
+_VALID_API_KEY = "sk-or-v1-0123456789abcdef0123456789abcdef0123456789"
+
+
 def _fake_client(create):
     return SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create))
@@ -1085,7 +1089,7 @@ def test_preflight_requires_openrouter_model():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
             "DN_WINDOW_TITLE": "Dragon Nest",
         },
         clear=True,
@@ -1101,7 +1105,7 @@ def test_preflight_requires_openrouter_model():
 def test_preflight_requires_window_title():
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENROUTER_API_KEY": _VALID_API_KEY, "OPENROUTER_MODEL": "test/free"},
         clear=True,
     ):
         try:
@@ -1116,7 +1120,7 @@ def test_preflight_rejects_partial_capture_rect():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
             "OPENROUTER_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_CAPTURE_LEFT": "137",
@@ -1137,7 +1141,7 @@ def test_preflight_rejects_non_integer_capture_value():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
             "OPENROUTER_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_CAPTURE_LEFT": "137",
@@ -1159,7 +1163,7 @@ def test_preflight_rejects_invalid_monitor():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
             "OPENROUTER_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_MONITOR": "dua",
@@ -1174,11 +1178,75 @@ def test_preflight_rejects_invalid_monitor():
             raise AssertionError("Non-integer monitor must be rejected")
 
 
+@pytest.mark.parametrize(
+    "api_key,expected_text",
+    [
+        ("sk-or-v1-your-key-here", "placeholder"),
+        ("sk-or-v1-abc", "sk-or-v1"),
+        ("test-key", "tampak tidak valid"),
+    ],
+    ids=["placeholder", "too-short-prefix", "no-prefix"],
+)
+def test_preflight_rejects_invalid_api_key_format(api_key, expected_text):
+    """Clearly-invalid keys fail fast at preflight with an actionable message
+    instead of surfacing as a 401 at runtime (T7)."""
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": api_key,
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+        },
+        clear=True,
+    ):
+        with pytest.raises(RuntimeError, match=expected_text) as error_info:
+            dn_bot.preflight_configuration()
+
+    assert ".env" in str(error_info.value)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("sk-or-v1-" + "a" * 48, True),
+        (
+            "sk-or-v1-"
+            + "a"
+            * (dn_bot.config.OPENROUTER_KEY_MIN_LENGTH - len(dn_bot.config.OPENROUTER_KEY_PREFIX)),
+            True,
+        ),
+        (
+            "sk-or-v1-"
+            + "a"
+            * (dn_bot.config.OPENROUTER_KEY_MIN_LENGTH - len(dn_bot.config.OPENROUTER_KEY_PREFIX) - 1),
+            False,
+        ),
+        ("sk-or-v1-your-key-here", False),
+        ("sk-or-v1-abc", False),
+        ("test-key", False),
+        ("", False),
+    ],
+    ids=[
+        "valid",
+        "exact-minimum",
+        "below-minimum",
+        "placeholder",
+        "too-short",
+        "no-prefix",
+        "empty",
+    ],
+)
+def test_is_plausible_openrouter_key(value, expected):
+    """Shape check is conservative: never rejects a real key, always catches
+    the clearly-invalid values (boundary included)."""
+    assert dn_bot.config._is_plausible_openrouter_key(value) is expected
+
+
 def test_preflight_accepts_valid_configuration():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
             "OPENROUTER_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
         },

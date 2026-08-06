@@ -1,7 +1,7 @@
 # Plan 006 — F-06/SBP-006: batasi detail error API di log (implement)
 
 - **Temuan:** Detail error API (pesan SDK) dicantumkan **verbatim** ke log → log berisik, metadata request ikut tersimpan. Low.
-- **Status:** ✅ **Fixed** (2026-08-06). Implementasi + tes regresi selesai; suite penuh **62 passed**.
+- **Status:** ✅ **Fixed** (2026-08-06). Implementasi + tes regresi selesai; rantai exception di-suppress (`raise ... from None`) agar pesan SDK mentah tidak bocor via traceback `log.exception`; suite penuh **62 passed**.
 
 ## Konteks
 

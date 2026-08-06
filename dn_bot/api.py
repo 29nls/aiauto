@@ -181,9 +181,13 @@ def _call_openrouter(
             if len(detail) > API_ERROR_DETAIL_MAX:
                 detail = detail[:API_ERROR_DETAIL_MAX] + "... (terpotong)"
             if kind not in _RETRYABLE_API_KINDS or attempt == API_MAX_ATTEMPTS:
+                # `from None`: the chained SDK exception (with its full,
+                # untruncated message) must not surface via log.exception
+                # tracebacks. Classification + bounded detail are already in
+                # the message (F-06).
                 raise RuntimeError(
                     f"{API_ERROR_MESSAGES[kind]} Detail: {detail}"
-                ) from error
+                ) from None
             delay = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             log.warning(
                 "OpenRouter %s (percobaan %s/%s, %.2f s); mencoba lagi dalam %.1f detik.",

@@ -650,6 +650,7 @@ def test_call_openrouter_truncates_long_error_detail():
             assert "... (terpotong)" in str(error)
             assert truncated in str(error)
             assert long_detail not in str(error)
+            assert error.__cause__ is None  # chain suppressed: no traceback leak
         else:
             raise AssertionError("Config errors must surface as RuntimeError")
 

@@ -109,8 +109,9 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
         try:
             response = _call_openrouter(client, model, messages)
         except RuntimeError as error:
-            # log.exception preserves the original cause for debugging while
-            # the message itself carries the actionable classification.
+            # The chained cause is suppressed in _call_openrouter (`from None`)
+            # so verbose SDK details never reach this log (F-06); the message
+            # carries the actionable classification plus a bounded detail.
             log.exception(
                 "OpenRouter API gagal; sesi dihentikan tanpa aksi tambahan: %s",
                 error,

@@ -45,6 +45,8 @@ ACTION_COOLDOWN = 0.15
 MOVE_DURATION = 0.3
 START_DELAY_SECONDS = 5
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+API_MAX_ATTEMPTS = 3
+API_RETRY_BASE_DELAY = 1.5
 
 
 MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
@@ -134,8 +136,29 @@ def _image_block(encoded: str) -> dict[str, Any]:
     }
 
 
+def _int_env(name: str, default: Optional[str] = None) -> Optional[int]:
+    """Parse an integer env var, failing fast with a clear message.
+
+    Raises:
+        ValueError: If the configured value is not an integer.
+    """
+    raw = os.getenv(name, default)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{name} harus berupa bilangan bulat, bukan {raw!r}."
+        ) from None
+
+
 def _capture_region_from_env(screen: mss.mss) -> dict[str, int]:
-    """Use an explicit game-window rectangle, or a configured monitor."""
+    """Use an explicit game-window rectangle, or a configured monitor.
+
+    Raises:
+        ValueError: If the capture configuration is incomplete or invalid.
+    """
     names = (
         "DN_CAPTURE_LEFT",
         "DN_CAPTURE_TOP",
@@ -149,14 +172,14 @@ def _capture_region_from_env(screen: mss.mss) -> dict[str, int]:
                 "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT harus diisi semuanya."
             )
         region = {
-            name.removeprefix("DN_CAPTURE_").lower(): int(value)
-            for name, value in zip(names, configured)
+            name.removeprefix("DN_CAPTURE_").lower(): _int_env(name)
+            for name in names
         }
         if region["width"] < 2 or region["height"] < 2:
             raise ValueError("DN_CAPTURE_WIDTH/HEIGHT harus minimal 2.")
         return region
 
-    monitor_index = int(os.getenv("DN_MONITOR", "1"))
+    monitor_index = _int_env("DN_MONITOR", "1")
     if monitor_index < 1 or monitor_index >= len(screen.monitors):
         raise ValueError(
             f"DN_MONITOR harus berada di antara 1 dan {len(screen.monitors) - 1}."
@@ -425,6 +448,83 @@ def get_openrouter_client() -> OpenAI:
     return OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
 
 
+# Failure kinds that are worth retrying. Configuration errors (auth, model,
+# invalid request) never recover by retrying, so they surface immediately.
+_RETRYABLE_API_KINDS = {"rate_limit", "server", "network"}
+
+API_ERROR_MESSAGES = {
+    "auth": "OPENROUTER_API_KEY tidak valid atau kedaluwarsa (401/403); periksa .env.",
+    "not_found": "Model tidak ditemukan (404); periksa OPENROUTER_MODEL dan base URL.",
+    "invalid_request": (
+        "Permintaan ditolak (400/422); pastikan model mendukung vision dan tool "
+        "calling. Jika konteks penuh, mulai sesi baru."
+    ),
+    "rate_limit": "Batas kecepatan OpenRouter (429); coba lagi nanti atau ganti model.",
+    "server": "OpenRouter melaporkan gangguan server (5xx); coba lagi nanti.",
+    "network": "Koneksi jaringan gagal; periksa koneksi internet.",
+    "http": "OpenRouter mengembalikan error HTTP yang tidak dikenal.",
+    "unknown": "Kesalahan OpenRouter yang tidak dikenal.",
+}
+
+
+def _classify_api_error(error: BaseException) -> str:
+    """Classify an API exception into a stable, actionable failure kind."""
+    status = getattr(error, "status_code", None)
+    if status is not None:
+        if status in (401, 403):
+            return "auth"
+        if status == 404:
+            return "not_found"
+        if status in (400, 422):
+            return "invalid_request"
+        if status == 429:
+            return "rate_limit"
+        if status == 408:
+            return "network"
+        if status >= 500:
+            return "server"
+        return "http"
+    name = type(error).__name__.lower()
+    if "timeout" in name or "connection" in name:
+        return "network"
+    return "unknown"
+
+
+def _call_openrouter(
+    client: OpenAI, model: str, messages: list[dict[str, Any]]
+) -> Any:
+    """Call the model with bounded retries for transient failures only.
+
+    Retries wrap the request itself, never tool execution, so a retried or
+    failed call can never repeat a physical action.
+    """
+    for attempt in range(1, API_MAX_ATTEMPTS + 1):
+        try:
+            return client.chat.completions.create(
+                model=model,
+                max_tokens=1024,
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+                tools=[DRAGON_NEST_TOOL],
+                tool_choice="auto",
+            )
+        except Exception as error:
+            kind = _classify_api_error(error)
+            detail = getattr(error, "message", None) or str(error)
+            if kind not in _RETRYABLE_API_KINDS or attempt == API_MAX_ATTEMPTS:
+                raise RuntimeError(
+                    f"{API_ERROR_MESSAGES[kind]} Detail: {detail}"
+                ) from error
+            delay = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            log.warning(
+                "OpenRouter %s (percobaan %s/%s); mencoba lagi dalam %.1f detik.",
+                kind,
+                attempt,
+                API_MAX_ATTEMPTS,
+                delay,
+            )
+            time.sleep(delay)
+
+
 def extract_tool_requests(message: Any) -> list[dict[str, Any]]:
     """Parse OpenRouter/OpenAI function calls into validated-loop inputs."""
     requests = []
@@ -518,15 +618,14 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
         messages = _compact_messages(messages)
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=1024,
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-                tools=[DRAGON_NEST_TOOL],
-                tool_choice="auto",
+            response = _call_openrouter(client, model, messages)
+        except RuntimeError as error:
+            # log.exception preserves the original cause for debugging while
+            # the message itself carries the actionable classification.
+            log.exception(
+                "OpenRouter API gagal; sesi dihentikan tanpa aksi tambahan: %s",
+                error,
             )
-        except Exception:
-            log.exception("OpenRouter API gagal; sesi dihentikan tanpa aksi tambahan.")
             return
 
         try:

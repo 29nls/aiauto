@@ -101,6 +101,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Sesi dibatasi maksimal 10 langkah.
+- Panggilan OpenRouter memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
 
 Function yang tersedia:
 
@@ -148,6 +149,8 @@ Pastikan file bernama `.env` berada di folder yang sama dengan `app_dn.py`, dan 
 ### Model tidak tersedia atau tool call gagal
 
 Atur `OPENROUTER_MODEL` ke model **gratis** yang saat ini mencantumkan kemampuan vision dan tool/function calling di katalog OpenRouter. Model gratis dapat berubah, kehabisan kapasitas, terkena rate limit, atau tidak mendukung kombinasi kemampuan tersebut.
+
+Error transien seperti rate limit (429), gangguan server (5xx), atau masalah koneksi dicoba ulang otomatis (maksimal 3 percobaan, yaitu 2 retry) dengan backoff sebelum sesi berhenti. Error konfigurasi — API key salah (401/403), model tidak ditemukan (404), atau request ditolak (400/422) — langsung menghentikan sesi dengan pesan penyebab yang spesifik; perbaiki `.env` lalu jalankan ulang.
 
 ### Input tidak masuk ke game
 

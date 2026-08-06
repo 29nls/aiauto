@@ -6,6 +6,25 @@ import app_dn
 from PIL import Image
 
 
+class _FakeAPIError(Exception):
+    """Mirrors openai.APIStatusError subclasses (e.g. RateLimitError)."""
+
+    def __init__(self, message="boom", status_code=None):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+class _FakeTimeoutError(Exception):
+    """Mirrors openai.APITimeoutError: no status_code attribute."""
+
+
+def _fake_client(create):
+    return SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+
 def test_openrouter_client_uses_configured_openrouter_base_url():
     with patch.dict(
         os.environ,
@@ -382,6 +401,141 @@ def test_physical_point_rejects_non_integer_coordinates():
         raise AssertionError("Non-integer coordinates should be rejected")
 
 
+def test_capture_region_reads_full_explicit_rect_from_env():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "1920",
+            "DN_CAPTURE_HEIGHT": "1080",
+        },
+        clear=True,
+    ):
+        region = app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+
+    assert region == {"left": 137, "top": 83, "width": 1920, "height": 1080}
+
+
+def test_capture_region_requires_all_rect_vars():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "1920",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+        except ValueError as error:
+            assert "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT" in str(error)
+        else:
+            raise AssertionError("Partial rect must be rejected")
+
+
+def test_capture_region_rejects_non_integer_rect_value():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "lebar",
+            "DN_CAPTURE_HEIGHT": "1080",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+        except ValueError as error:
+            assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
+            assert "lebar" in str(error)
+        else:
+            raise AssertionError("Non-integer rect value must be rejected")
+
+
+def test_capture_region_rejects_non_integer_monitor():
+    with patch.dict(
+        os.environ,
+        {"DN_MONITOR": "dua"},
+        clear=True,
+    ):
+        try:
+            app_dn._capture_region_from_env(SimpleNamespace(monitors=[{}]))
+        except ValueError as error:
+            assert "DN_MONITOR harus berupa bilangan bulat" in str(error)
+        else:
+            raise AssertionError("Non-integer monitor must be rejected")
+
+
+def test_capture_region_reads_valid_monitor():
+    screen = SimpleNamespace(
+        monitors=[
+            {"left": 0, "top": 0, "width": 3840, "height": 1080},
+            {"left": 0, "top": 0, "width": 1920, "height": 1080},
+            {"left": 1920, "top": 0, "width": 1920, "height": 1080},
+        ]
+    )
+    with patch.dict(os.environ, {"DN_MONITOR": "2"}, clear=True):
+        region = app_dn._capture_region_from_env(screen)
+
+    assert region == {"left": 1920, "top": 0, "width": 1920, "height": 1080}
+
+
+def test_capture_region_defaults_to_monitor_one():
+    screen = SimpleNamespace(
+        monitors=[
+            {"left": 0, "top": 0, "width": 3840, "height": 1080},
+            {"left": 0, "top": 0, "width": 1920, "height": 1080},
+        ]
+    )
+    with patch.dict(os.environ, {}, clear=True):
+        region = app_dn._capture_region_from_env(screen)
+
+    assert region == {"left": 0, "top": 0, "width": 1920, "height": 1080}
+
+
+def test_capture_region_rejects_monitor_out_of_range():
+    screen = SimpleNamespace(
+        monitors=[
+            {"left": 0, "top": 0, "width": 3840, "height": 1080},
+            {"left": 0, "top": 0, "width": 1920, "height": 1080},
+        ]
+    )
+    with patch.dict(os.environ, {"DN_MONITOR": "5"}, clear=True):
+        try:
+            app_dn._capture_region_from_env(screen)
+        except ValueError as error:
+            assert "antara 1 dan 1" in str(error)
+        else:
+            raise AssertionError("Out-of-range monitor must be rejected")
+
+
+def test_capture_region_rejects_empty_rect_value():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_CAPTURE_LEFT": "137",
+            "DN_CAPTURE_TOP": "83",
+            "DN_CAPTURE_WIDTH": "",
+            "DN_CAPTURE_HEIGHT": "1080",
+        },
+        clear=True,
+    ):
+        try:
+            app_dn._capture_region_from_env(SimpleNamespace(monitors=[]))
+        except ValueError as error:
+            assert "DN_CAPTURE_WIDTH harus berupa bilangan bulat" in str(error)
+        else:
+            raise AssertionError("Empty rect value must be rejected")
+
+
+def test_int_env_returns_none_when_unset_and_no_default():
+    with patch.dict(os.environ, {}, clear=True):
+        assert app_dn._int_env("DN_CAPTURE_LEFT") is None
+
+
 def test_image_block_uses_openai_compatible_image_url_data_uri():
     block = app_dn._image_block("abc123")
 
@@ -450,3 +604,164 @@ def test_extract_tool_requests_reads_openrouter_function_call():
             "input": {"action": "wait", "duration": 0.1},
         }
     ]
+
+
+def test_classify_api_error_kinds():
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=401)) == "auth"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=403)) == "auth"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=404)) == "not_found"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=400)) == "invalid_request"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=422)) == "invalid_request"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=429)) == "rate_limit"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=408)) == "network"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=500)) == "server"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=503)) == "server"
+    assert app_dn._classify_api_error(_FakeAPIError(status_code=409)) == "http"
+    assert app_dn._classify_api_error(_FakeTimeoutError()) == "network"
+    assert app_dn._classify_api_error(Exception("bukan error API")) == "unknown"
+
+
+def test_call_openrouter_retries_rate_limit_then_succeeds():
+    attempts = {"count": 0}
+    expected = SimpleNamespace(ok=True)
+
+    def create(**payload):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise _FakeAPIError("rate limited", 429)
+        return expected
+
+    sleeps = []
+    with patch.object(
+        app_dn.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)
+    ):
+        result = app_dn._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert result is expected
+    assert attempts["count"] == 3
+    assert sleeps == [app_dn.API_RETRY_BASE_DELAY, app_dn.API_RETRY_BASE_DELAY * 2]
+
+
+def test_call_openrouter_stops_after_max_attempts():
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeAPIError("rate limited", 429)
+
+    with patch.object(app_dn.time, "sleep"):
+        try:
+            app_dn._call_openrouter(_fake_client(create), "test/free", [])
+        except RuntimeError as error:
+            assert "429" in str(error)
+        else:
+            raise AssertionError("Retries should be exhausted into a RuntimeError")
+
+    assert attempts["count"] == app_dn.API_MAX_ATTEMPTS
+
+
+def test_call_openrouter_does_not_retry_configuration_errors():
+    for status_code, expected_text in ((401, "OPENROUTER_API_KEY"), (404, "OPENROUTER_MODEL")):
+        attempts = {"count": 0}
+
+        def create(**payload):
+            attempts["count"] += 1
+            raise _FakeAPIError("config problem", status_code)
+
+        with patch.object(app_dn.time, "sleep"):
+            try:
+                app_dn._call_openrouter(_fake_client(create), "test/free", [])
+            except RuntimeError as error:
+                assert expected_text in str(error)
+            else:
+                raise AssertionError("Configuration errors must fail fast")
+
+        assert attempts["count"] == 1
+
+
+def test_call_openrouter_retries_network_timeout_then_succeeds():
+    attempts = {"count": 0}
+    expected = SimpleNamespace(ok=True)
+
+    def create(**payload):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise _FakeTimeoutError("timed out")
+        return expected
+
+    with patch.object(app_dn.time, "sleep"):
+        result = app_dn._call_openrouter(_fake_client(create), "test/free", [])
+
+    assert result is expected
+    assert attempts["count"] == 2
+
+
+def test_run_dn_bot_stops_after_retries_without_running_actions():
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        raise _FakeAPIError("rate limited", 429)
+
+    client = _fake_client(create)
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
+        app_dn, "capture_screen_base64", return_value="frame"
+    ), patch.object(app_dn, "execute_game_action") as execute, patch.object(
+        app_dn, "check_emergency_stop"
+    ), patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn, "_safe_sleep"
+    ), patch.object(app_dn.time, "sleep"):
+        app_dn.run_dn_bot("go", max_steps=1)
+
+    assert attempts["count"] == app_dn.API_MAX_ATTEMPTS
+    execute.assert_not_called()
+
+
+def test_run_dn_bot_retried_call_runs_action_exactly_once():
+    attempts = {"count": 0}
+
+    def create(**payload):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise _FakeAPIError("rate limited", 429)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                id="call-1",
+                                function=SimpleNamespace(
+                                    name="dragon_nest_action",
+                                    arguments='{"action":"wait"}',
+                                ),
+                            )
+                        ],
+                    )
+                )
+            ]
+        )
+
+    client = _fake_client(create)
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(app_dn, "get_openrouter_client", return_value=client), patch.object(
+        app_dn, "capture_screen_base64", return_value="frame"
+    ), patch.object(app_dn, "execute_game_action") as execute, patch.object(
+        app_dn, "check_emergency_stop"
+    ), patch.object(app_dn, "check_target_window"), patch.object(
+        app_dn, "_safe_sleep"
+    ), patch.object(app_dn.time, "sleep"):
+        app_dn.run_dn_bot("go", max_steps=1)
+
+    assert attempts["count"] == 2
+    execute.assert_called_once_with(
+        action="wait", coordinate=None, text=None, duration=app_dn.MOVE_DURATION
+    )

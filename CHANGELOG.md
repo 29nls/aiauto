@@ -14,6 +14,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Fixture `capture_region` di `tests/conftest.py` untuk me-pin global state capture (`_capture_region`/`_capture_geometry`) per tes.
 - `SECURITY.md` baru: threat model, asumsi, mitigasi, dan daftar temuan (F-01..F-07) agar review keamanan berikutnya tidak mengulang temuan yang sama.
 - `dn_bot/device.py` baru: seam input device — `DeviceInput` protocol + `PyDirectInputDevice` adapter (satu-satunya modul yang mengimpor `pydirectinput`); `RecordingDevice` in-memory di `tests/conftest.py` meng-assert urutan input tanpa patch namespace library (kandidat arsitektur #4, plan 012/015).
+- Packaging setuptools via `pyproject.toml` baru: metadata paket (`version 0.2.0.dev0`, `requires-python >= 3.10`), console script `dn-bot = dn_bot.__main__:main`, dan runtime `dependencies` yang memirror `requirements.txt` (tetap source of truth — tes drift `test_pyproject_runtime_dependencies_match_requirements_txt` mencegah divergence). Setelah `pip install -e .`, `python -m dn_bot` berfungsi dari folder mana pun dan tersedia `dn-bot`; wart direktori kerja di README dihapus (temuan survey T4).
 
 ### Changed
 

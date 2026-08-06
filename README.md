@@ -40,6 +40,12 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q tests
 ```
 
+Opsional — install paket itu sendiri (metadata di `pyproject.toml`) agar `python -m dn_bot` berfungsi dari **folder mana pun** dan tersedia console script `dn-bot`:
+
+```bat
+python -m pip install -e .   # editable: perubahan kode langsung terpakai tanpa install ulang
+```
+
 Edit `.env` secara lokal:
 
 ```dotenv
@@ -69,6 +75,7 @@ Aturan pemeliharaan:
 - **`requirements-dev.txt`** menambah `pytest==8.3.5` di atas pin runtime (`-r requirements.txt`), jadi suite tes offline berjalan di versi yang identik dengan produksi.
 - **Memperbarui versi** — ubah satu pin, instal di venv bersih, lalu jalankan seluruh suite tes offline sebelum menaikkan versi berikutnya. `openai` saat ini versi 2.x; kode memakai `chat.completions.create` + `tools` yang terverifikasi oleh suite tes.
 - **Tanpa lockfile terpisah (sengaja)** — proyek hanya punya 5 dependensi runtime, pin eksak sudah cukup. Jika dependensi bertambah banyak atau CI memakai ekosistem berbeda, tambahkan `constraints.txt` dari `pip freeze` untuk mengunci versi transitif juga.
+- **Packaging** — `pyproject.toml` memirror kelima pin runtime sebagai `dependencies` (untuk `pip install .` / `pip install -e .`); tes drift memastikan daftar di sana tidak menyimpang dari `requirements.txt`, yang tetap satu-satunya source of truth.
 
 ## Menjalankan
 
@@ -82,7 +89,7 @@ Aturan pemeliharaan:
 python -m dn_bot
 ```
 
-Jalankan dari **root proyek** (folder yang berisi `.env` dan paket `dn_bot/`): `.env` dimuat relatif terhadap direktori kerja (tanpa pesan jika tidak ditemukan), dan paket `dn_bot` hanya bisa di-import jika root proyek ada di cwd/`PYTHONPATH`. Dari folder lain, perintah gagal dengan `ImportError: No module named 'dn_bot'` (atau, jika root ada di `PYTHONPATH`, preflight gagal dengan pesan env yang hilang seperti "OPENROUTER_API_KEY belum diatur").
+Paket `dn_bot` kini punya metadata packaging (`pyproject.toml`). Setelah `python -m pip install -e .` dijalankan sekali (lihat Instalasi), `python -m dn_bot` berfungsi dari **folder mana pun**, dan tersedia pula console script `dn-bot` yang setara. Tanpa install, perintah hanya berjalan dari root proyek (paket ditemukan lewat cwd/`PYTHONPATH`) dan dari folder lain gagal dengan `ImportError: No module named 'dn_bot'`. Catatan: `.env` tetap dimuat relatif terhadap direktori kerja (tanpa pesan jika tidak ditemukan) — jalankan dari folder yang berisi `.env` (atau set env secara langsung), karena jika tidak preflight gagal dengan pesan seperti "OPENROUTER_API_KEY belum diatur".
 
 Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENROUTER_API_KEY` terisi **dan berformat wajar** (diawali `sk-or-v1-` dengan panjang minimal — placeholder di `.env.example` ditolak), `OPENROUTER_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown. Cek fokus jendela (`check_target_window`) juga bersifat **fail-closed di non-Windows**: menolak berjalan (bukan melewati cek diam-diam), termasuk untuk pemanggilan programatik yang tidak lewat preflight.
 
@@ -168,6 +175,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 ├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)
 ├── requirements.txt   # Dependency runtime Python (pin eksak = lock)
 ├── requirements-dev.txt # Dependency development + runtime untuk tes offline (pytest di atas -r requirements.txt)
+├── pyproject.toml      # Packaging setuptools: metadata, mirror deps requirements.txt, console script `dn-bot`
 ├── pytest.ini         # Konfigurasi pytest (testpaths, pythonpath)
 ├── CHANGELOG.md       # Riwayat perubahan (Keep a Changelog)
 ├── SECURITY.md        # Threat model, asumsi trust boundary, mitigasi, status temuan

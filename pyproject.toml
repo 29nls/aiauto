@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dn-bot"
+version = "0.2.0.dev0"
+description = "Vision-assisted input experiment for Dragon Nest on Windows (OpenRouter + tool calling)."
+readme = "README.md"
+requires-python = ">=3.10"
+# Runtime dependencies are a MIRROR of requirements.txt, which remains the
+# single source of truth for pinned versions. Keep the two lists in sync:
+# the drift-guard test test_pyproject_runtime_dependencies_match_requirements_txt
+# fails the suite if they diverge. (An alternative zero-duplication form is
+# `[tool.setuptools.dynamic] dependencies = {file = ["requirements.txt"]}`;
+# an explicit list was chosen for build robustness across install sources.)
+dependencies = [
+    "openai==2.53.0",
+    "pydirectinput==1.0.4",
+    "mss==10.2.0",
+    "pillow==12.3.0",
+    "python-dotenv==1.2.2",
+]
+
+[project.scripts]
+# Console script: `dn-bot` becomes available after `pip install .` / `-e .`
+dn-bot = "dn_bot.__main__:main"
+
+[tool.setuptools]
+# Explicit package list: never auto-discover tests/ or stray top-level dirs.
+packages = ["dn_bot"]

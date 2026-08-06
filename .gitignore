@@ -10,6 +10,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Packaging artifacts (pip install -e . / pip wheel create these in-tree)
+*.egg-info/
+build/
+dist/
+
 # IDE and OS files
 .vscode/
 .idea/

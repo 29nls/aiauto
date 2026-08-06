@@ -1,4 +1,11 @@
+import importlib
 import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
 import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1519,3 +1526,82 @@ def test_run_dn_bot_action_failure_message_is_sanitized():
             dn_bot.run_dn_bot("go", max_steps=1)
 
     assert "\x1b" not in str(error_info.value)
+
+
+# --- Packaging (T4) ---
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PYPROJECT_PATH = _PROJECT_ROOT / "pyproject.toml"
+
+
+def _entry_points_from_pyproject(text: str) -> list[tuple[str, str]]:
+    """Extract (name, target) pairs from the [project.scripts] section of a
+    pyproject.toml text (stdlib-only; tomllib is 3.11+, the matrix covers 3.10)."""
+    section = re.search(r"\[project\.scripts\](?P<body>[\s\S]*?)(?=\n\[|\Z)", text)
+    assert section, "pyproject.toml harus punya section [project.scripts]"
+    entries = []
+    for line in section.group("body").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, target = (part.strip().strip('"') for part in line.split("=", 1))
+        entries.append((name, target))
+    return entries
+
+
+def test_pyproject_declares_dn_bot_package_and_console_script():
+    """Packaging metadata resolves without a pip install: the dn-bot console
+    script declared in pyproject.toml points at a real, callable main() (T4)."""
+    text = _PYPROJECT_PATH.read_text(encoding="utf-8")
+    # Whitespace-tolerant guard: survives cosmetic TOML reformatting.
+    assert re.search(r'packages\s*=\s*\["dn_bot"\]', text)
+    assert "requires-python" in text and ">=3.10" in text
+
+    entries = _entry_points_from_pyproject(text)
+    assert entries, "pyproject.toml harus mendeklarasikan minimal satu console script"
+    assert any(name == "dn-bot" for name, _ in entries)
+    for name, target in entries:
+        module_name, _, attr = target.partition(":")
+        module = importlib.import_module(module_name)
+        assert callable(getattr(module, attr)), f"{name}: {target} tidak callable"
+
+
+def test_pyproject_runtime_dependencies_match_requirements_txt():
+    """Drift guard: pyproject.toml dependencies mirror requirements.txt exactly,
+    so requirements.txt stays the single source of truth for runtime pins."""
+    req_specs = {
+        line.strip()
+        for line in (_PROJECT_ROOT / "requirements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    text = _PYPROJECT_PATH.read_text(encoding="utf-8")
+    block = re.search(
+        r"\[project\][\s\S]*?dependencies = \[(?P<deps>[\s\S]*?)\]", text
+    )
+    assert block, "pyproject.toml harus punya blok dependencies di [project]"
+    pyproject_specs = {
+        match.group(1)
+        for match in re.finditer(r'"([A-Za-z0-9._-]+==[^"]+)"', block.group("deps"))
+    }
+    assert pyproject_specs == req_specs
+
+
+def test_dn_bot_runs_from_foreign_cwd_with_pythonpath():
+    """Guard: 'python -m dn_bot' works when the package is importable from any
+    cwd (installed, or here simulated via PYTHONPATH) — the pre-T4 cwd wart is
+    gone. Uses the current interpreter; no pip install is required."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "PYTHONPATH": str(_PROJECT_ROOT)}
+        result = subprocess.run(
+            [sys.executable, "-m", "dn_bot", "--help"],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    assert result.returncode == 0, result.stderr
+    assert "--instruction" in result.stdout
+    assert "Dragon Nest" in result.stdout

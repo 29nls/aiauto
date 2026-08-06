@@ -10,15 +10,28 @@ permissions:
 jobs:
   offline-tests:
     runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Documented support range (README: Python 3.10+). Pinned deps have
+        # wheels for every entry (verified Requires-Python + wheel resolution).
+        python-version: ["3.10", "3.12", "3.14"]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Install development dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Check installed dependencies
+        run: python -m pip check
       - name: Compile Python modules
         run: python -m compileall -q dn_bot tests
       - name: Run offline tests

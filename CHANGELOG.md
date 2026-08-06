@@ -30,6 +30,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - Retry backoff di `_call_openrouter` kini **responsif terhadap emergency**: jeda antar percobaan memakai `safety._safe_sleep` (interval ≤50 ms dengan cek pojok failsafe + fokus jendela tiap tick), jadi pengguna bisa menghentikan sesi di tengah backoff — `EmergencyStop`/`FocusLost` diteruskan keluar loop tanpa dibungkus menjadi error API (temuan survey T2).
 - Tujuan sesi kini dapat dikonfigurasi: env `DN_INSTRUCTION` atau flag CLI `--instruction` (stdlib argparse; precedence **CLI > env > `DEFAULT_INSTRUCTION`** di config.py). Perilaku no-args tetap byte-identical dengan teks bawaan sebelumnya (temuan survey T3).
 - Preflight kini menolak `OPENROUTER_API_KEY` yang jelas tidak valid — tanpa prefix `sk-or-v1-` atau terlalu pendek (`OPENROUTER_KEY_MIN_LENGTH`), termasuk placeholder `.env.example` — dengan pesan actionable sebelum countdown, bukan menunggu 401 saat runtime (temuan survey T7).
+- Workflow CI (`tests.yml`) kini menjalankan matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan yang diklaim README; kompatibilitas wheel pin diverifikasi), plus `pip check` setelah install, `timeout-minutes: 10` per job, dan pip cache via `setup-python` — konvensi SHA penuh + least-privilege tetap (temuan survey T5).
 
 ### Removed
 

@@ -101,7 +101,7 @@ Eksperimen vision input untuk Dragon Nest: screenshot region game → model visi
 ## Dependensi & CI
 
 - `requirements.txt`: **pin eksak `==`** (5 dependensi runtime); `requirements-dev.txt` = `-r requirements.txt` + `pytest==8.3.5`. Tanpa lockfile (keputusan sadar) → beralih ke `constraints.txt` dari `pip freeze` jika dependensi bertambah.
-- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, jalankan `compileall` + pytest.
+- `.github/workflows/tests.yml`: actions di-pin **SHA penuh** (bukan tag bergerak), `permissions: contents: read`, matrix Python **3.10 / 3.12 / 3.14** (rentang dukungan README — kompatibilitas wheel pin diverifikasi), `timeout-minutes: 10`, pip cache via `setup-python` (`cache: pip`), step `pip check` setelah install, lalu `compileall` + pytest.
 
 ## Git & shared checkout
 

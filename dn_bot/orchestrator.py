@@ -25,7 +25,7 @@ from .messages import (
     tool_result,
     user_text,
 )
-from .safety import check_emergency_stop
+from .safety import _sanitize_log_text, check_emergency_stop
 
 
 def _compact_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -167,7 +167,11 @@ def run_dn_bot(instruction: str, max_steps: int = MAX_STEPS_PER_SESSION) -> None
                     raise
                 except Exception as error:
                     log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
-                    raise RuntimeError(f"Aksi {action!r} gagal: {error}") from error
+                    # `action` adalah input model (tak tepercaya): sanitasi sebelum
+                    # masuk pesan error agar tidak terjadi log injection (pola F-05).
+                    raise RuntimeError(
+                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
+                    ) from error
 
             messages.append(tool_result(request.id, result))
 

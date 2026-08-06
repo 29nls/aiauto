@@ -17,6 +17,7 @@ from .config import (
     log,
 )
 from .messages import ModelReply, ToolRequest
+from .safety import _sanitize_log_text
 
 DRAGON_NEST_TOOL = {
     "type": "function",
@@ -197,6 +198,10 @@ def _call_openrouter(
             detail = getattr(error, "message", None) or str(error)
             if len(detail) > API_ERROR_DETAIL_MAX:
                 detail = detail[:API_ERROR_DETAIL_MAX] + "... (terpotong)"
+            # Detail SDK (data pihak ketiga) juga disanitasi: F-06 membatasi
+            # panjangnya, F-05 men-strip karakter kontrol agar tidak ada
+            # terminal log injection via traceback log.exception.
+            detail = _sanitize_log_text(detail)
             if kind not in _RETRYABLE_API_KINDS or attempt == API_MAX_ATTEMPTS:
                 # `from None`: the chained SDK exception (with its full,
                 # untruncated message) must not surface via log.exception
@@ -228,7 +233,11 @@ def extract_tool_requests(message: Any) -> list[ToolRequest]:
     requests = []
     for call in getattr(message, "tool_calls", None) or []:
         if call.function.name != "dragon_nest_action":
-            raise ValueError(f"Tool tidak diizinkan: {call.function.name}")
+            # `name` adalah input model (tak tepercaya): sanitasi sebelum masuk
+            # pesan error agar tidak terjadi terminal log injection (pola F-05).
+            raise ValueError(
+                f"Tool tidak diizinkan: {_sanitize_log_text(str(call.function.name))}"
+            )
         try:
             tool_input = json.loads(call.function.arguments)
         except json.JSONDecodeError as error:

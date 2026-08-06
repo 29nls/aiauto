@@ -13,6 +13,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - `tests/test_integration.py`: 3 tes integration end-to-end loop `run_dn_bot` (fake capture `Frame` nyata dengan encoded unik + fake client SDK-shaped direplay melalui adapter asli) — alur penuh 2 langkah, satu aksi per siklus, dan aksi siklus berikutnya dimetakan ke frame segar; jaring pengaman sebelum refactor arsitektur (plan 016).
 - Fixture `capture_region` di `tests/conftest.py` untuk me-pin global state capture (`_capture_region`/`_capture_geometry`) per tes.
 - `SECURITY.md` baru: threat model, asumsi, mitigasi, dan daftar temuan (F-01..F-07) agar review keamanan berikutnya tidak mengulang temuan yang sama.
+- `dn_bot/device.py` baru: seam input device — `DeviceInput` protocol + `PyDirectInputDevice` adapter (satu-satunya modul yang mengimpor `pydirectinput`); `RecordingDevice` in-memory di `tests/conftest.py` meng-assert urutan input tanpa patch namespace library (kandidat arsitektur #4, plan 012/015).
 
 ### Changed
 
@@ -20,6 +21,8 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - `capture.py`: global state tersembunyi (`_capture_region`/`_capture_geometry`) dihapus — diganti `Frame` immutable eksplisit (encoded JPEG + geometry) yang diteruskan ke `_physical_point` dan `execute_game_action` (prinsip determinism; kandidat arsitektur #1).
 - `dn_bot/messages.py` baru: satu module kontrak wire-shape pesan OpenAI-compatible (`user_text`, `image_block`, `frame_message`, `assistant_message`, `tool_result`, `tool_calls_wire`) + tipe polos `ToolRequest`/`ModelReply` — tidak ada lagi dict pesan mentah di orchestrator/capture (kandidat arsitektur #3).
 - Adapter OpenRouter (`_call_openrouter`) kini mengembalikan `ModelReply` polos (teks + tool requests terurai) dan mem-parse respons SDK di luar loop retry; `api.py` menjadi satu-satunya modul yang menyentuh object SDK, `extract_tool_requests` mengembalikan `list[ToolRequest]` (kandidat arsitektur #2).
+- `input_control.py`/`safety.py`: `execute_game_action`, `check_emergency_stop`, dan `_safe_sleep` menerima device via dependency injection (default = adapter produksi); device yang di-inject di-thread ke seluruh guard jalur aksi — tidak ada lagi panggilan `pydirectinput` langsung di luar adapter (kandidat arsitektur #4).
+- `tests/test_integration.py`: tes integration ke-4 (`test_integration_real_input_sequence_via_recorder`, plan 016 item 3) mengeksekusi `execute_game_action` asli dengan `RecordingDevice` — urutan input fisik `move_camera`/`wait` di-assert langsung dari recorder, bukan mock.
 - Suite offline dimigrasi ke `tests/` dan dirapikan ke idiom pytest: 5 loop `for` di-parametrize (`@pytest.mark.parametrize` dengan id deskriptif), blok `try/except` menjadi `pytest.raises`, dan sys.path hack di conftest digantikan opsi `pythonpath`.
 - Workflow CI (`tests.yml`) diperbarui untuk layout package.
 - `README.md`: usage `python -m dn_bot`, struktur file, section "Dependensi & lock", klausa working-directory, dan catatan `pytest.ini`.
@@ -33,6 +36,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id/1.1.0/), dan p
 - `check_target_window` kini **fail-closed** di platform non-Windows: menolak berjalan dengan pesan jelas, termasuk untuk pemanggilan programatik yang tidak lewat preflight (F-02/SBP-003).
 - Judul window aktif di-sanitasi sebelum di-log — karakter kontrol (C0/C1) dan sekuens ANSI di-strip — untuk mencegah log injection (F-05/SBP-005).
 - Detail error API dibatasi panjangnya (maks 500 karakter, suffix `... (terpotong)`) sebelum masuk pesan error yang di-log, tanpa mengubah klasifikasi actionable (F-06/SBP-006).
+- Input model yang masuk ke pesan error di-sanitasi seperti nilai tak tepercaya lainnya: aksi tak dikenal (`Aksi tidak diizinkan: …`) dan nama tool tak dikenal (`Tool tidak diizinkan: …`) di-strip karakter kontrol/ANSI sebelum di-log via traceback, dan detail error SDK ikut disanitasi (perluasan F-05 ke input dari model dan data SDK).
 - Versi dependensi runtime di-pin eksak (`==`) di `requirements.txt`; kebijakan lock/constraints didokumentasikan (F-03/SBP-001).
 - Actions CI di-pin ke SHA commit penuh dan `permissions: contents: read` ditambahkan di workflow (F-04/SBP-002).
 - Actions CI di-upgrade ke major terbaru dengan SHA penuh dari remote: `actions/checkout` v4.2.1 → v7.0.1, `actions/setup-python` v5.6.0 → v7.0.0 (F-07).

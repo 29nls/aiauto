@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import dn_bot
-from conftest import _sdk_response, _sdk_tool_call
+from conftest import RecordingDevice, _sdk_response, _sdk_tool_call
 from PIL import Image
 
 
@@ -43,68 +43,95 @@ def test_openrouter_client_uses_configured_openrouter_base_url():
 
 def test_move_camera_anchors_at_center_before_absolute_endpoint(capture_region):
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
-    calls = []
+    device = RecordingDevice()
     with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
-        dn_bot.input_control.pydirectinput, "position", return_value=(900, 700)
-    ), patch.object(
-        dn_bot.input_control.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)
-    ), patch.object(
-        dn_bot.input_control.pydirectinput, "moveRel"
-    ) as move_rel, patch.object(dn_bot.input_control, "_safe_sleep"), patch.object(
         dn_bot.input_control, "check_emergency_stop"
-    ):
-        dn_bot.execute_game_action("move_camera", coordinate=[800, 600], frame=frame)
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.execute_game_action(
+            "move_camera", coordinate=[800, 600], frame=frame, device=device
+        )
 
-    assert calls == [(512, 384), (800, 600)]
-    move_rel.assert_not_called()
+    # Camera movement is anchored at the screenshot center first; the
+    # protocol has no moveRel method, so only moveTo calls can be recorded.
+    device.assert_calls([("moveTo", (512, 384)), ("moveTo", (800, 600))])
 
 
 def test_repeated_move_camera_calls_reanchor_before_each_endpoint(capture_region):
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
-    calls = []
+    device = RecordingDevice()
     with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
-        dn_bot.input_control.pydirectinput, "position", return_value=(12, 700)
-    ), patch.object(
-        dn_bot.input_control.pydirectinput, "moveTo", side_effect=lambda *point: calls.append(point)
-    ), patch.object(
-        dn_bot.input_control, "_safe_sleep"
-    ), patch.object(dn_bot.input_control, "check_emergency_stop"):
-        dn_bot.execute_game_action("move_camera", coordinate=[800, 600], frame=frame)
-        dn_bot.execute_game_action("move_camera", coordinate=[200, 300], frame=frame)
+        dn_bot.input_control, "check_emergency_stop"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.execute_game_action(
+            "move_camera", coordinate=[800, 600], frame=frame, device=device
+        )
+        dn_bot.execute_game_action(
+            "move_camera", coordinate=[200, 300], frame=frame, device=device
+        )
 
-    assert calls == [(512, 384), (800, 600), (512, 384), (200, 300)]
+    device.assert_calls(
+        [
+            ("moveTo", (512, 384)),
+            ("moveTo", (800, 600)),
+            ("moveTo", (512, 384)),
+            ("moveTo", (200, 300)),
+        ]
+    )
 
 
 def test_move_camera_rejects_padding_before_moving_cursor(capture_region):
     frame = capture_region({"left": 0, "top": 0, "width": 1920, "height": 1080})
+    device = RecordingDevice()
     with patch.object(
         dn_bot.input_control, "check_target_window"
     ), patch.object(dn_bot.input_control, "check_emergency_stop"), patch.object(
-        dn_bot.input_control.pydirectinput, "moveTo"
-    ) as move_to, patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.input_control, "_safe_sleep"
+    ):
         with pytest.raises(ValueError, match="padding"):
-            dn_bot.execute_game_action("move_camera", coordinate=[512, 95], frame=frame)
+            dn_bot.execute_game_action(
+                "move_camera", coordinate=[512, 95], frame=frame, device=device
+            )
 
-    move_to.assert_not_called()
+    device.assert_calls([])
 
 
 def test_move_camera_rejects_missing_coordinate(capture_region):
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    device = RecordingDevice()
     with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
         dn_bot.input_control, "check_emergency_stop"
     ):
         with pytest.raises(ValueError, match="coordinate"):
-            dn_bot.execute_game_action("move_camera", frame=frame)
+            dn_bot.execute_game_action("move_camera", frame=frame, device=device)
+
+    device.assert_calls([])
 
 
 @pytest.mark.parametrize("duration", ["slow", float("nan"), float("inf")])
 def test_execute_game_action_rejects_invalid_duration(capture_region, duration):
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
-    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
-        dn_bot.input_control.pydirectinput, "position", return_value=(100, 100)
-    ):
+    device = RecordingDevice()  # position() returns a non-corner default
+    with patch.object(dn_bot.input_control, "check_target_window"):
         with pytest.raises(ValueError, match="duration"):
-            dn_bot.execute_game_action("wait", duration=duration, frame=frame)
+            dn_bot.execute_game_action(
+                "wait", duration=duration, frame=frame, device=device
+            )
+
+    # The real emergency-stop guard ran first: it read the cursor once.
+    device.assert_calls([("position", ())])
+
+
+def test_execute_game_action_sanitizes_unknown_action_in_error(capture_region):
+    """Aksi tak dikenal dari model disanitasi sebelum masuk pesan error (F-05)."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control, "check_emergency_stop"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(ValueError, match="Aksi tidak diizinkan") as error_info:
+            dn_bot.execute_game_action(
+                "\x1b[31mINJECT\x1b[0m", frame=frame, device=RecordingDevice()
+            )
+    assert "\x1b" not in str(error_info.value)
 
 
 @pytest.mark.parametrize(
@@ -544,6 +571,23 @@ def test_extract_tool_requests_rejects_malformed_json():
         raise AssertionError("Malformed tool JSON should be rejected")
 
 
+def test_extract_tool_requests_sanitizes_unknown_tool_name():
+    """Nama tool tak dikenal dari model disanitasi sebelum masuk pesan error (F-05)."""
+    message = SimpleNamespace(
+        tool_calls=[
+            SimpleNamespace(
+                id="call-1",
+                function=SimpleNamespace(
+                    name="\x1b[31mevil_tool\x1b[0m", arguments="{}"
+                ),
+            )
+        ]
+    )
+    with pytest.raises(ValueError, match="Tool tidak diizinkan") as error_info:
+        dn_bot.extract_tool_requests(message)
+    assert "\x1b" not in str(error_info.value)
+
+
 def test_extract_tool_requests_reads_openrouter_function_call():
     message = SimpleNamespace(
         tool_calls=[
@@ -564,19 +608,39 @@ def test_extract_tool_requests_reads_openrouter_function_call():
     ]
 
 
-def test_classify_api_error_kinds():
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=401)) == "auth"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=403)) == "auth"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=404)) == "not_found"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=400)) == "invalid_request"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=422)) == "invalid_request"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=429)) == "rate_limit"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=408)) == "network"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=500)) == "server"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=503)) == "server"
-    assert dn_bot._classify_api_error(_FakeAPIError(status_code=409)) == "http"
-    assert dn_bot._classify_api_error(_FakeTimeoutError()) == "network"
-    assert dn_bot._classify_api_error(Exception("bukan error API")) == "unknown"
+@pytest.mark.parametrize(
+    "error,expected_kind",
+    [
+        (_FakeAPIError(status_code=401), "auth"),
+        (_FakeAPIError(status_code=403), "auth"),
+        (_FakeAPIError(status_code=404), "not_found"),
+        (_FakeAPIError(status_code=400), "invalid_request"),
+        (_FakeAPIError(status_code=422), "invalid_request"),
+        (_FakeAPIError(status_code=429), "rate_limit"),
+        (_FakeAPIError(status_code=408), "network"),
+        (_FakeAPIError(status_code=500), "server"),
+        (_FakeAPIError(status_code=503), "server"),
+        (_FakeAPIError(status_code=409), "http"),
+        (_FakeTimeoutError(), "network"),
+        (Exception("bukan error API"), "unknown"),
+    ],
+    ids=[
+        "401-auth",
+        "403-auth",
+        "404-not_found",
+        "400-invalid_request",
+        "422-invalid_request",
+        "429-rate_limit",
+        "408-network",
+        "500-server",
+        "503-server",
+        "409-http",
+        "timeout-network",
+        "unknown",
+    ],
+)
+def test_classify_api_error_kinds(error, expected_kind):
+    assert dn_bot._classify_api_error(error) == expected_kind
 
 
 def test_call_openrouter_retries_rate_limit_then_succeeds():
@@ -653,6 +717,30 @@ def test_call_openrouter_truncates_long_error_detail():
             assert error.__suppress_context__ is True  # chain suppressed: no traceback leak
         else:
             raise AssertionError("Config errors must surface as RuntimeError")
+
+
+def test_call_openrouter_sanitizes_sdk_error_detail():
+    """Detail error SDK disanitasi (F-05) selain dibatasi panjangnya (F-06)."""
+    def create(**payload):
+        raise _FakeAPIError("\x1b[31mhostile detail\x1b[0m", 401)
+
+    with patch.object(dn_bot.api.time, "sleep"):
+        try:
+            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        except RuntimeError as error:
+            assert "\x1b" not in str(error)
+            assert "hostile detail" in str(error)
+        else:
+            raise AssertionError("Config errors must surface as RuntimeError")
+
+
+def test_check_emergency_stop_raises_in_failsafe_corner():
+    """Boundary: (0,0) dan (5,5) di dalam pojok failsafe; (6,6) di luar."""
+    for corner in [(0, 0), (5, 5)]:
+        with pytest.raises(dn_bot.EmergencyStop):
+            dn_bot.check_emergency_stop(RecordingDevice(position=corner))
+    # Tepat di luar pojok (6,6) bukan emergency stop.
+    dn_bot.check_emergency_stop(RecordingDevice(position=(6, 6)))
 
 
 def test_call_openrouter_preserves_short_error_detail():
@@ -974,6 +1062,30 @@ def test_call_openrouter_logs_request_latency():
     )
 
 
+def test_recording_device_records_exact_call_sequence():
+    device = RecordingDevice(position=(50, 60))
+    assert device.position() == (50, 60)
+    device.moveTo(1, 2)
+    device.keyDown("w")
+    device.keyUp("w")
+    device.click()
+    device.rightClick()
+    device.set_position((0, 0))
+    assert device.position() == (0, 0)
+
+    device.assert_calls(
+        [
+            ("position", ()),
+            ("moveTo", (1, 2)),
+            ("keyDown", ("w",)),
+            ("keyUp", ("w",)),
+            ("click", ()),
+            ("rightClick", ()),
+            ("position", ()),
+        ]
+    )
+
+
 def test_messages_contract_wire_shapes():
     assert dn_bot.user_text("go") == {"role": "user", "content": "go"}
     assert dn_bot.image_block("abc") == {
@@ -1094,3 +1206,37 @@ def test_run_dn_bot_consumes_plain_model_reply():
         duration=dn_bot.MOVE_DURATION,
         frame=frame,
     )
+
+
+def test_run_dn_bot_action_failure_message_is_sanitized():
+    """Wrapper RuntimeError di orchestrator menyimpan aksi yang disanitasi (F-05)."""
+    frame = SimpleNamespace(encoded="frame")
+    replies = iter(
+        [
+            dn_bot.ModelReply(
+                text="",
+                tool_requests=[
+                    dn_bot.ToolRequest(
+                        id="call-1", input={"action": "\x1b[31mINJECT\x1b[0m"}
+                    )
+                ],
+            ),
+        ]
+    )
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openrouter",
+        side_effect=lambda *args, **kwargs: next(replies),
+    ), patch.object(
+        dn_bot.orchestrator, "execute_game_action", side_effect=ValueError("boom")
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"):
+        with pytest.raises(RuntimeError, match="Aksi") as error_info:
+            dn_bot.run_dn_bot("go", max_steps=1)
+
+    assert "\x1b" not in str(error_info.value)

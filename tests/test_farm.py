@@ -51,9 +51,9 @@ def test_observation_claim_is_not_authoritative_until_action_succeeds(
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
         dn_bot.orchestrator, "FarmWatchdog", side_effect=build_watchdog
@@ -104,9 +104,9 @@ def test_orchestrator_commits_claim_after_successful_device(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
         dn_bot.orchestrator, "FarmWatchdog", side_effect=build_watchdog
@@ -408,10 +408,10 @@ def test_post_action_farm_safety_stop_is_not_wrapped_as_action_failure(capture_r
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
@@ -438,9 +438,9 @@ def test_farm_loop_requires_farm_state_and_uses_extended_prompt(capture_region):
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"):
         with pytest.raises(dn_bot.FarmSafetyStop, match="tidak mengirim aksi/state"):
@@ -570,10 +570,10 @@ def test_farm_loop_executes_explicit_exit_phases_with_recorder(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(
@@ -614,12 +614,12 @@ def test_configured_destination_is_mentioned_in_session_prompt(
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
-        dn_bot.orchestrator, "_call_openrouter", wraps=dn_bot.orchestrator._call_openrouter
+        dn_bot.orchestrator, "_call_openai", wraps=dn_bot.orchestrator._call_openai
     ) as call:
         with pytest.raises(dn_bot.FarmSafetyStop, match="tidak mengirim aksi/state"):
             dn_bot.run_dn_bot(
@@ -701,9 +701,9 @@ def test_farm_loop_accepts_state_and_sends_f12_transition(capture_region):
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=[frame, frame]
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
         dn_bot.orchestrator, "execute_game_action"

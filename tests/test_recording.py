@@ -240,11 +240,11 @@ def test_recording_mode_propagates_api_failure_for_nonzero_cli_exit(tmp_path):
     path = tmp_path / "trace.json"
     with patch.dict(
         __import__("os").environ,
-        {"OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
         dn_bot.orchestrator,
-        "_call_openrouter",
+        "_call_openai",
         side_effect=RuntimeError("api down"),
     ), patch.object(
         dn_bot.orchestrator,
@@ -321,10 +321,10 @@ def test_recorded_real_session_round_trips_through_offline_replay(tmp_path, capt
     device = RecordingDevice()
     with patch.dict(
         __import__("os").environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
-        dn_bot.orchestrator, "_call_openrouter", side_effect=lambda *args, **kwargs: next(replies)
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
+        dn_bot.orchestrator, "_call_openai", side_effect=lambda *args, **kwargs: next(replies)
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=frames
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
@@ -361,10 +361,10 @@ def test_dry_run_recording_never_calls_production_adapter(tmp_path, capture_regi
     )
     with patch.dict(
         __import__("os").environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
-        dn_bot.orchestrator, "_call_openrouter", return_value=reply
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
+        dn_bot.orchestrator, "_call_openai", return_value=reply
     ), patch.object(dn_bot.orchestrator, "capture_screen_base64", return_value=frame), patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
     ), patch.object(dn_bot.input_control, "check_target_window"), patch.object(

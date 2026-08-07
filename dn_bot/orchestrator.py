@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openrouter, get_openrouter_client
+from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openai, get_openai_client
 from .capture import capture_screen_base64
 from .config import (
     MAX_CONTEXT_MESSAGES,
@@ -92,7 +92,7 @@ def run_dn_bot(
     retreat_destination: str | None = None,
     record_trace_path: str | Path | None = None,
 ) -> None:
-    """Run a bounded screenshot -> OpenRouter -> validated action loop.
+    """Run a bounded screenshot -> OpenAI -> validated action loop.
 
     ``device`` is the input seam, defaulting to the production adapter so
     non-dry-run behavior is byte-identical; it is threaded through the
@@ -118,10 +118,10 @@ def run_dn_bot(
     if record_trace_path is not None and farm_profile is None:
         raise ValueError("record_trace_path membutuhkan farm_profile minotaur.")
 
-    model = os.getenv("OPENROUTER_MODEL", "").strip()
+    model = os.getenv("OPENAI_MODEL", "").strip()
     if not model:
         raise RuntimeError(
-            "OPENROUTER_MODEL belum diatur. Pilih model OpenRouter yang "
+            "OPENAI_MODEL belum diatur. Pilih model OpenAI yang "
             "mendukung vision dan tool calling."
         )
 
@@ -161,7 +161,7 @@ def run_dn_bot(
         frame_caption = watchdog.caption()
     limit_text = "sampai dihentikan operator" if until_stopped else f"maks {max_steps} langkah"
     log.info("Sesi %s dimulai (%s)", session_id, limit_text)
-    client = get_openrouter_client()
+    client = get_openai_client()
     frame = capture_screen_base64()
     messages: list[dict[str, Any]] = [
         user_text(mode_instruction),
@@ -182,9 +182,9 @@ def run_dn_bot(
 
         try:
             if system_prompt is None:
-                reply = _call_openrouter(client, model, messages)
+                reply = _call_openai(client, model, messages)
             else:
-                reply = _call_openrouter(
+                reply = _call_openai(
                     client,
                     model,
                     messages,
@@ -194,11 +194,11 @@ def run_dn_bot(
         except RuntimeError as error:
             if recorder is not None:
                 raise
-            # The chained cause is suppressed in _call_openrouter (`from None`)
+            # The chained cause is suppressed in _call_openai (`from None`)
             # so verbose SDK details never reach this log (F-06); the message
             # carries the actionable classification plus a bounded detail.
             log.exception(
-                "OpenRouter API gagal; sesi dihentikan tanpa aksi tambahan: %s",
+                "OpenAI API gagal; sesi dihentikan tanpa aksi tambahan: %s",
                 error,
             )
             log.info(

@@ -22,7 +22,7 @@ def check_emergency_stop(
         x, y = device.position()
     except (EmergencyStop, FocusLost):
         # Domain errors from the device seam must propagate unchanged (repo
-        # exception-hierarchy convention — mirroring the _call_openrouter
+        # exception-hierarchy convention, mirroring the _call_openai
         # pattern): an abort raised by the position check must never be
         # rewrapped into a different EmergencyStop.
         raise

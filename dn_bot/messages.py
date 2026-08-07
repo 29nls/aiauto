@@ -1,7 +1,7 @@
 """Wire-shape message contract for the OpenAI-compatible API.
 
 Satu-satunya pemilik bentuk pesan yang dikirim ke (dan diterima dari)
-OpenRouter: image block, pesan user berisi frame, pesan assistant dengan
+OpenAI: image block, pesan user berisi frame, pesan assistant dengan
 tool-calls, tool result, dan tipe hasil polos dari adapter (``ModelReply``).
 Module lain memanggil kontrak ini alih-alih menyusun dict mentah, sehingga
 perubahan format pesan cukup diedit di satu tempat.
@@ -31,9 +31,9 @@ class ToolRequest:
 
 @dataclass(frozen=True)
 class ModelReply:
-    """Hasil polos dari adapter OpenRouter: teks + tool requests terurai.
+    """Hasil polos dari adapter OpenAI: teks + tool requests terurai.
 
-    Tidak mengandung bentuk object SDK; ``api._call_openrouter`` mengembalikan
+    Tidak mengandung bentuk object SDK; ``api._call_openai`` mengembalikan
     tipe ini sehingga orchestrator tidak pernah menyentuh object SDK.
     """
 

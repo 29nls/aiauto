@@ -1,6 +1,6 @@
 """dn_bot: Vision-assisted input experiment for Dragon Nest on Windows.
 
-This project uses a vision-capable model through OpenRouter plus a narrow,
+This project uses a vision-capable model through the official OpenAI API plus a narrow,
 allow-listed tool. It does not bypass anti-cheat, inject into the game, or
 guarantee that a particular Dragon Nest client accepts synthetic input.
 
@@ -26,9 +26,11 @@ from .api import (
     MINOTAUR_TOOL,
     SYSTEM_PROMPT,
     _RETRYABLE_API_KINDS,
+    _call_openai,
     _call_openrouter,
     _classify_api_error,
     extract_tool_requests,
+    get_openai_client,
     get_openrouter_client,
 )
 # Capture is deterministic: `capture_screen_base64` returns an immutable
@@ -63,6 +65,7 @@ from .config import (
     MOVE_DURATION,
     MOVE_KEYS,
     OPENROUTER_BASE_URL,
+    OPENAI_BASE_URL,
     START_DELAY_SECONDS,
     TARGET_HEIGHT,
     TARGET_WIDTH,
@@ -137,6 +140,7 @@ __all__ = [
     "MOVE_DURATION",
     "MOVE_KEYS",
     "OPENROUTER_BASE_URL",
+    "OPENAI_BASE_URL",
     "START_DELAY_SECONDS",
     "TARGET_HEIGHT",
     "TARGET_WIDTH",
@@ -191,9 +195,11 @@ __all__ = [
     "MINOTAUR_TOOL",
     "SYSTEM_PROMPT",
     "_RETRYABLE_API_KINDS",
+    "_call_openai",
     "_call_openrouter",
     "_classify_api_error",
     "extract_tool_requests",
+    "get_openai_client",
     "get_openrouter_client",
     # Orchestration
     "_compact_messages",

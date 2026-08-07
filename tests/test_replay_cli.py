@@ -117,8 +117,8 @@ def test_replay_cli_malformed_trace_matrix_fails_closed_and_stays_offline(
     original_trace_bytes = json.dumps(trace).encode("utf-8")
 
     env = os.environ.copy()
-    env.pop("OPENROUTER_API_KEY", None)
-    env.pop("OPENROUTER_MODEL", None)
+    env.pop("OPENAI_API_KEY", None)
+    env.pop("OPENAI_MODEL", None)
     result = _run_replay(
         tmp_path,
         trace_name=f"{case_id}.json",
@@ -131,7 +131,7 @@ def test_replay_cli_malformed_trace_matrix_fails_closed_and_stays_offline(
     assert result.stdout == "", (case_id, result.stdout)
     assert set(tmp_path.iterdir()) == before_files | {trace_path}
     assert trace_path.read_bytes() == original_trace_bytes
-    assert "OpenRouter" not in result.stderr
+    assert "OpenAI" not in result.stderr
     assert "screenshot" not in result.stderr.lower()
     assert "pydirectinput" not in result.stderr.lower()
 

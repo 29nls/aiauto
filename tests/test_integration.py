@@ -3,7 +3,7 @@
 Jaring pengaman sebelum refactor arsitektur besar (plan 016): menjalankan loop
 penuh capture -> pesan -> adapter -> aksi -> frame baru dengan fake yang
 menggantikan capture, API, dan emergency check, tetapi mengeksekusi adapter
-(``_call_openrouter``) dan kontrak ``messages.py`` ASLI.
+(``_call_openai``) dan kontrak ``messages.py`` ASLI.
 
 Sejak seam input device (kandidat #4, plan 012/015) selesai, satu tes
 (``test_integration_real_input_sequence_via_recorder``) mengeksekusi
@@ -73,10 +73,10 @@ def test_integration_full_loop_two_steps(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
@@ -134,10 +134,10 @@ def test_integration_rejects_second_action_per_cycle(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
@@ -167,10 +167,10 @@ def test_integration_next_cycle_acts_on_fresh_frame(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
@@ -238,10 +238,10 @@ def test_integration_real_input_sequence_via_recorder(capture_region):
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
     ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
@@ -306,10 +306,10 @@ def test_integration_dry_run_records_actions_without_physical_input(capture_regi
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ), patch.object(
-        dn_bot.orchestrator, "get_openrouter_client", return_value=client
+        dn_bot.orchestrator, "get_openai_client", return_value=client
     ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", side_effect=fake_capture
     ), patch.object(dn_bot.input_control, "check_target_window"), patch.object(

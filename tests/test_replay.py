@@ -44,7 +44,7 @@ def _trace(*steps, retreat_destination=None):
     }
 
 
-def test_replay_runs_golden_path_without_openrouter_or_physical_input():
+def test_replay_runs_golden_path_without_openai_or_physical_input():
     steps = [
         _step("enter", "entering_dungeon", "left_click", coordinate=[500, 400], before="pre_dungeon", after="entering_dungeon", calls=(("moveTo", (500, 400)), ("click", ()))),
         _step("combat", "combat", "wait", before="entering_dungeon", after="combat"),

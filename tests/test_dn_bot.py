@@ -29,8 +29,8 @@ class _FakeTimeoutError(Exception):
     """Mirrors openai.APITimeoutError: no status_code attribute."""
 
 
-# Realistic OpenRouter key shape that passes the preflight format check (T7).
-_VALID_API_KEY = "sk-or-v1-0123456789abcdef0123456789abcdef0123456789"
+# Realistic OpenAI project key shape that passes the preflight format check.
+_VALID_API_KEY = "sk-proj-0123456789abcdef0123456789abcdef0123456789"
 
 
 def _fake_client(create):
@@ -41,36 +41,33 @@ def _fake_client(create):
 
 
 
-def test_openrouter_client_passes_configured_base_url_api_key_and_timeout():
-    """Guard: the client is constructed with base_url, api_key, and a bounded
-    timeout (not the SDK default) — the exact T1 hardening."""
+def test_openai_client_passes_api_key_and_timeout():
+    """Guard: the official client receives the key and bounded timeout."""
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key"},
+        {"OPENAI_API_KEY": "test-key"},
         clear=True,
     ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
-        dn_bot.get_openrouter_client()
+        dn_bot.get_openai_client()
 
     mock_openai.assert_called_once_with(
-        base_url=dn_bot.config.OPENROUTER_BASE_URL,
         api_key="test-key",
-        timeout=dn_bot.config.OPENROUTER_TIMEOUT_DEFAULT,
+        timeout=dn_bot.config.OPENAI_TIMEOUT_DEFAULT,
     )
 
 
-def test_openrouter_client_honors_custom_timeout_env():
+def test_openai_client_honors_custom_timeout_env():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
-            "OPENROUTER_TIMEOUT": "30",
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_TIMEOUT": "30",
         },
         clear=True,
     ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
-        dn_bot.get_openrouter_client()
+        dn_bot.get_openai_client()
 
     mock_openai.assert_called_once_with(
-        base_url=dn_bot.config.OPENROUTER_BASE_URL,
         api_key="test-key",
         timeout=30,
     )
@@ -85,17 +82,17 @@ def test_openrouter_client_honors_custom_timeout_env():
     ],
     ids=["non-integer", "zero", "negative"],
 )
-def test_openrouter_client_rejects_invalid_timeout_env(value, expected_text):
+def test_openai_client_rejects_invalid_timeout_env(value, expected_text):
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": "test-key",
-            "OPENROUTER_TIMEOUT": value,
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_TIMEOUT": value,
         },
         clear=True,
     ), patch.object(dn_bot.api, "OpenAI"):
         with pytest.raises(ValueError, match=expected_text):
-            dn_bot.get_openrouter_client()
+            dn_bot.get_openai_client()
 
 
 def test_move_camera_anchors_at_center_before_absolute_endpoint(capture_region):
@@ -200,7 +197,7 @@ def test_run_dn_bot_rejects_non_string_instruction_and_non_integer_steps(
 ):
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
     ):
         with pytest.raises(ValueError):
@@ -246,9 +243,9 @@ def test_run_dn_bot_bounds_history_and_pairs_recent_tool_calls():
 
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client    ), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client    ), patch.object(
         dn_bot.orchestrator,
         "capture_screen_base64",
         side_effect=[
@@ -645,7 +642,7 @@ def test_extract_tool_requests_sanitizes_unknown_tool_name():
     assert "\x1b" not in str(error_info.value)
 
 
-def test_extract_tool_requests_reads_openrouter_function_call():
+def test_extract_tool_requests_reads_openai_function_call():
     message = SimpleNamespace(
         tool_calls=[
             SimpleNamespace(
@@ -700,7 +697,7 @@ def test_classify_api_error_kinds(error, expected_kind):
     assert dn_bot._classify_api_error(error) == expected_kind
 
 
-def test_call_openrouter_retries_rate_limit_then_succeeds():
+def test_call_openai_retries_rate_limit_then_succeeds():
     attempts = {"count": 0}
 
     def create(**payload):
@@ -713,14 +710,14 @@ def test_call_openrouter_retries_rate_limit_then_succeeds():
     with patch.object(
         dn_bot.api, "_safe_sleep", side_effect=lambda seconds: sleeps.append(seconds)
     ):
-        result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        result = dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
     assert attempts["count"] == 3
     assert sleeps == [dn_bot.API_RETRY_BASE_DELAY, dn_bot.API_RETRY_BASE_DELAY * 2]
 
 
-def test_call_openrouter_stops_after_max_attempts():
+def test_call_openai_stops_after_max_attempts():
     attempts = {"count": 0}
 
     def create(**payload):
@@ -729,7 +726,7 @@ def test_call_openrouter_stops_after_max_attempts():
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         try:
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
         except RuntimeError as error:
             assert "429" in str(error)
         else:
@@ -740,9 +737,9 @@ def test_call_openrouter_stops_after_max_attempts():
 
 @pytest.mark.parametrize(
     "status_code,expected_text",
-    [(401, "OPENROUTER_API_KEY"), (404, "OPENROUTER_MODEL")],
+    [(401, "OPENAI_API_KEY"), (404, "OPENAI_MODEL")],
 )
-def test_call_openrouter_does_not_retry_configuration_errors(status_code, expected_text):
+def test_call_openai_does_not_retry_configuration_errors(status_code, expected_text):
     attempts = {"count": 0}
 
     def create(**payload):
@@ -751,12 +748,12 @@ def test_call_openrouter_does_not_retry_configuration_errors(status_code, expect
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         with pytest.raises(RuntimeError, match=expected_text):
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert attempts["count"] == 1
 
 
-def test_call_openrouter_truncates_long_error_detail():
+def test_call_openai_truncates_long_error_detail():
     long_detail = "x" * (dn_bot.config.API_ERROR_DETAIL_MAX + 100)
 
     def create(**payload):
@@ -764,7 +761,7 @@ def test_call_openrouter_truncates_long_error_detail():
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         try:
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
         except RuntimeError as error:
             truncated = long_detail[: dn_bot.config.API_ERROR_DETAIL_MAX]
             assert "... (terpotong)" in str(error)
@@ -776,14 +773,14 @@ def test_call_openrouter_truncates_long_error_detail():
             raise AssertionError("Config errors must surface as RuntimeError")
 
 
-def test_call_openrouter_sanitizes_sdk_error_detail():
+def test_call_openai_sanitizes_sdk_error_detail():
     """Detail error SDK disanitasi (F-05) selain dibatasi panjangnya (F-06)."""
     def create(**payload):
         raise _FakeAPIError("\x1b[31mhostile detail\x1b[0m", 401)
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         try:
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
         except RuntimeError as error:
             assert "\x1b" not in str(error)
             assert "hostile detail" in str(error)
@@ -821,7 +818,7 @@ class _RaisingDevice:
 def test_check_emergency_stop_propagates_domain_errors_unchanged(error):
     """Guard: EmergencyStop/FocusLost from the device seam propagate with their
     original instance/message — never rewrapped by the broad except (survey
-    candidate #2, mirroring the _call_openrouter re-raise pattern)."""
+    candidate #2, mirroring the _call_openai re-raise pattern)."""
     with pytest.raises(type(error), match=re.escape(str(error))) as error_info:
         dn_bot.check_emergency_stop(_RaisingDevice(error))
     assert error_info.value is error
@@ -867,7 +864,7 @@ def test_backoff_sleep_completes_when_no_emergency():
     assert ("position", ()) in device.calls
 
 
-def test_call_openrouter_preserves_short_error_detail():
+def test_call_openai_preserves_short_error_detail():
     short_detail = "config problem"
 
     def create(**payload):
@@ -875,7 +872,7 @@ def test_call_openrouter_preserves_short_error_detail():
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         try:
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
         except RuntimeError as error:
             assert short_detail in str(error)
             assert "terpotong" not in str(error)
@@ -883,7 +880,7 @@ def test_call_openrouter_preserves_short_error_detail():
             raise AssertionError("Config errors must surface as RuntimeError")
 
 
-def test_call_openrouter_retries_network_timeout_then_succeeds():
+def test_call_openai_retries_network_timeout_then_succeeds():
     attempts = {"count": 0}
 
     def create(**payload):
@@ -893,16 +890,16 @@ def test_call_openrouter_retries_network_timeout_then_succeeds():
         return _sdk_response(content="baik")
 
     with patch.object(dn_bot.api, "_safe_sleep"):
-        result = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        result = dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert result == dn_bot.ModelReply(text="baik", tool_requests=[])
     assert attempts["count"] == 2
 
 
-def test_call_openrouter_timeout_errors_retry_then_surface_as_network():
+def test_call_openai_timeout_errors_retry_then_surface_as_network():
     """A timeout-class error maps to network (retryable), not unknown.
 
-    Guard: a request that exceeds OPENROUTER_TIMEOUT raises an SDK timeout
+    Guard: a request that exceeds OPENAI_TIMEOUT raises an SDK timeout
     error; the taxonomy must classify it as a retryable network failure, so
     the retry loop retries it and, when exhausted, surfaces the actionable
     network message instead of the unknown-kind fallback.
@@ -917,13 +914,13 @@ def test_call_openrouter_timeout_errors_retry_then_surface_as_network():
         with pytest.raises(
             RuntimeError, match=dn_bot.api.API_ERROR_MESSAGES["network"]
         ) as error_info:
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert attempts["count"] == dn_bot.API_MAX_ATTEMPTS
     assert "timed out" in str(error_info.value)
 
 
-def test_call_openrouter_propagates_emergency_during_backoff():
+def test_call_openai_propagates_emergency_during_backoff():
     """EmergencyStop from the backoff sleep aborts the session, unretried.
 
     Guard: the retry loop must not classify/wrap the emergency error into a
@@ -940,12 +937,12 @@ def test_call_openrouter_propagates_emergency_during_backoff():
         dn_bot.api, "_safe_sleep", side_effect=dn_bot.EmergencyStop("pojok kiri atas")
     ):
         with pytest.raises(dn_bot.EmergencyStop):
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert attempts["count"] == 1  # no retry after the emergency abort
 
 
-def test_call_openrouter_propagates_focus_lost_during_backoff():
+def test_call_openai_propagates_focus_lost_during_backoff():
     """FocusLost from the backoff sleep aborts the session, unretried."""
     attempts = {"count": 0}
 
@@ -957,7 +954,7 @@ def test_call_openrouter_propagates_focus_lost_during_backoff():
         dn_bot.api, "_safe_sleep", side_effect=dn_bot.FocusLost("fokus hilang")
     ):
         with pytest.raises(dn_bot.FocusLost):
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert attempts["count"] == 1  # no retry after the focus abort
 
@@ -972,9 +969,9 @@ def test_run_dn_bot_stops_after_retries_without_running_actions():
     client = _fake_client(create)
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client    ), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client    ), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=SimpleNamespace(encoded="frame")
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
@@ -1015,9 +1012,9 @@ def test_run_dn_bot_retried_call_runs_action_exactly_once():
     client = _fake_client(create)
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client", return_value=client), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
@@ -1103,11 +1100,11 @@ def test_check_target_window_sanitizes_hostile_window_title():
             raise AssertionError("Focus mismatch must raise FocusLost")
 
 
-def test_preflight_requires_openrouter_api_key():
+def test_preflight_requires_openai_api_key():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
         },
         clear=True,
@@ -1115,16 +1112,16 @@ def test_preflight_requires_openrouter_api_key():
         try:
             dn_bot.preflight_configuration()
         except RuntimeError as error:
-            assert "OPENROUTER_API_KEY" in str(error)
+            assert "OPENAI_API_KEY" in str(error)
         else:
             raise AssertionError("Missing API key must be rejected")
 
 
-def test_preflight_requires_openrouter_model():
+def test_preflight_requires_openai_model():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
+            "OPENAI_API_KEY": _VALID_API_KEY,
             "DN_WINDOW_TITLE": "Dragon Nest",
         },
         clear=True,
@@ -1132,7 +1129,7 @@ def test_preflight_requires_openrouter_model():
         try:
             dn_bot.preflight_configuration()
         except RuntimeError as error:
-            assert "OPENROUTER_MODEL" in str(error)
+            assert "OPENAI_MODEL" in str(error)
         else:
             raise AssertionError("Missing model must be rejected")
 
@@ -1140,7 +1137,7 @@ def test_preflight_requires_openrouter_model():
 def test_preflight_requires_window_title():
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": _VALID_API_KEY, "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": _VALID_API_KEY, "OPENAI_MODEL": "test/free"},
         clear=True,
     ):
         try:
@@ -1155,8 +1152,8 @@ def test_preflight_rejects_partial_capture_rect():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_CAPTURE_LEFT": "137",
             "DN_CAPTURE_TOP": "83",
@@ -1176,8 +1173,8 @@ def test_preflight_rejects_non_integer_capture_value():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_CAPTURE_LEFT": "137",
             "DN_CAPTURE_TOP": "83",
@@ -1198,8 +1195,8 @@ def test_preflight_rejects_invalid_monitor():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_MONITOR": "dua",
         },
@@ -1216,8 +1213,8 @@ def test_preflight_rejects_invalid_monitor():
 @pytest.mark.parametrize(
     "api_key,expected_text",
     [
-        ("sk-or-v1-your-key-here", "placeholder"),
-        ("sk-or-v1-abc", "sk-or-v1"),
+        ("sk-proj-your-key-here", "placeholder"),
+        ("sk-proj-abc", "sk-"),
         ("test-key", "tampak tidak valid"),
     ],
     ids=["placeholder", "too-short-prefix", "no-prefix"],
@@ -1228,8 +1225,8 @@ def test_preflight_rejects_invalid_api_key_format(api_key, expected_text):
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": api_key,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": api_key,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
         },
         clear=True,
@@ -1243,21 +1240,20 @@ def test_preflight_rejects_invalid_api_key_format(api_key, expected_text):
 @pytest.mark.parametrize(
     "value,expected",
     [
-        ("sk-or-v1-" + "a" * 48, True),
+        ("sk-proj-" + "a" * 48, True),
         (
-            "sk-or-v1-"
-            + "a"
-            * (dn_bot.config.OPENROUTER_KEY_MIN_LENGTH - len(dn_bot.config.OPENROUTER_KEY_PREFIX)),
+            dn_bot.config.OPENAI_KEY_PREFIX
+            + "a" * (dn_bot.config.OPENAI_KEY_MIN_LENGTH - len(dn_bot.config.OPENAI_KEY_PREFIX)),
             True,
         ),
         (
-            "sk-or-v1-"
-            + "a"
-            * (dn_bot.config.OPENROUTER_KEY_MIN_LENGTH - len(dn_bot.config.OPENROUTER_KEY_PREFIX) - 1),
+            dn_bot.config.OPENAI_KEY_PREFIX
+            + "a" * (dn_bot.config.OPENAI_KEY_MIN_LENGTH - len(dn_bot.config.OPENAI_KEY_PREFIX) - 1),
             False,
         ),
-        ("sk-or-v1-your-key-here", False),
-        ("sk-or-v1-abc", False),
+        ("sk-proj-your-key-here", False),
+        ("sk-proj-abc", False),
+        ("sk-or-v1-" + "a" * 48, False),
         ("test-key", False),
         ("", False),
     ],
@@ -1267,22 +1263,23 @@ def test_preflight_rejects_invalid_api_key_format(api_key, expected_text):
         "below-minimum",
         "placeholder",
         "too-short",
+        "openrouter-key",
         "no-prefix",
         "empty",
     ],
 )
-def test_is_plausible_openrouter_key(value, expected):
+def test_is_plausible_openai_key(value, expected):
     """Shape check is conservative: never rejects a real key, always catches
     the clearly-invalid values (boundary included)."""
-    assert dn_bot.config._is_plausible_openrouter_key(value) is expected
+    assert dn_bot.config._is_plausible_openai_key(value) is expected
 
 
 def test_preflight_accepts_valid_configuration():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
         },
         clear=True,
@@ -1320,8 +1317,8 @@ def test_preflight_rejects_invalid_retreat_destination():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_RETREAT_DESTINATION": "city",
         },
@@ -1335,8 +1332,8 @@ def test_cli_retreat_destination_overrides_invalid_environment_value():
     with patch.dict(
         os.environ,
         {
-            "OPENROUTER_API_KEY": _VALID_API_KEY,
-            "OPENROUTER_MODEL": "test/free",
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
             "DN_WINDOW_TITLE": "Dragon Nest",
             "DN_RETREAT_DESTINATION": "city",
         },
@@ -1526,13 +1523,13 @@ def test_run_dn_bot_default_session_uses_production_device():
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(
         dn_bot.orchestrator,
-        "_call_openrouter",
+        "_call_openai",
         side_effect=lambda *args, **kwargs: next(replies),
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
@@ -1554,7 +1551,7 @@ def test_new_session_id_is_unique_and_log_safe():
     assert all(ch.isalnum() or ch == "-" for ch in first)
 
 
-def test_call_openrouter_logs_request_latency():
+def test_call_openai_logs_request_latency():
     def create(**payload):
         return _sdk_response()
 
@@ -1562,10 +1559,10 @@ def test_call_openrouter_logs_request_latency():
     with patch.object(
         dn_bot.api.log, "info", side_effect=lambda *args: calls.append(args)
     ):
-        dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+        dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert any(
-        isinstance(args[0], str) and "OpenRouter request selesai" in args[0]
+        isinstance(args[0], str) and "OpenAI request selesai" in args[0]
         for args in calls
     )
 
@@ -1650,7 +1647,7 @@ def test_messages_tool_calls_wire_rebuilds_arguments_from_input():
     ]
 
 
-def test_call_openrouter_does_not_retry_malformed_response():
+def test_call_openai_does_not_retry_malformed_response():
     attempts = {"count": 0}
 
     def create(**payload):
@@ -1659,19 +1656,19 @@ def test_call_openrouter_does_not_retry_malformed_response():
 
     with patch.object(dn_bot.api, "_safe_sleep"):
         with pytest.raises(ValueError, match="JSON"):
-            dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+            dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert attempts["count"] == 1
 
 
-def test_call_openrouter_parses_tool_requests_into_model_reply():
+def test_call_openai_parses_tool_requests_into_model_reply():
     def create(**payload):
         return _sdk_response(
             content="akan pindah",
             tool_calls=[_sdk_tool_call("call-1", '{"action": "wait"}')],
         )
 
-    reply = dn_bot._call_openrouter(_fake_client(create), "test/free", [])
+    reply = dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert reply == dn_bot.ModelReply(
         text="akan pindah",
@@ -1694,13 +1691,13 @@ def test_run_dn_bot_consumes_plain_model_reply():
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(
         dn_bot.orchestrator,
-        "_call_openrouter",
+        "_call_openai",
         side_effect=lambda *args, **kwargs: next(replies),
     ), patch.object(dn_bot.orchestrator, "execute_game_action") as execute, patch.object(
         dn_bot.orchestrator, "check_emergency_stop"
@@ -1734,13 +1731,13 @@ def test_run_dn_bot_action_failure_message_is_sanitized():
     )
     with patch.dict(
         os.environ,
-        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
         clear=False,
-    ), patch.object(dn_bot.orchestrator, "get_openrouter_client"), patch.object(
+    ), patch.object(dn_bot.orchestrator, "get_openai_client"), patch.object(
         dn_bot.orchestrator, "capture_screen_base64", return_value=frame
     ), patch.object(
         dn_bot.orchestrator,
-        "_call_openrouter",
+        "_call_openai",
         side_effect=lambda *args, **kwargs: next(replies),
     ), patch.object(
         dn_bot.orchestrator, "execute_game_action", side_effect=ValueError("boom")

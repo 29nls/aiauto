@@ -30,14 +30,18 @@ MAX_CONTEXT_MESSAGES = 8
 ACTION_COOLDOWN = 0.15
 MOVE_DURATION = 0.3
 START_DELAY_SECONDS = 5
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# Official OpenAI endpoint. The client uses the SDK default directly; the
+# constant remains useful to callers that need to display the selected service.
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+# Deprecated compatibility name. It no longer selects or enables OpenRouter.
+OPENROUTER_BASE_URL = OPENAI_BASE_URL
 API_MAX_ATTEMPTS = 3
 API_RETRY_BASE_DELAY = 1.5
 API_ERROR_DETAIL_MAX = 500
-# Default seconds before an OpenRouter request is aborted (env OPENROUTER_TIMEOUT).
+# Default seconds before an OpenAI request is aborted (env OPENAI_TIMEOUT).
 # Bounded so a hung request cannot hold the session for the SDK default (~600 s)
 # times API_MAX_ATTEMPTS without any emergency responsiveness in between.
-OPENROUTER_TIMEOUT_DEFAULT = 60
+OPENAI_TIMEOUT_DEFAULT = 60
 # Default session goal, used when neither the CLI flag (--instruction) nor the
 # DN_INSTRUCTION env var is provided. Byte-identical to the pre-T3 hardcoded
 # text so no-args behavior is unchanged.
@@ -46,12 +50,11 @@ DEFAULT_INSTRUCTION = (
     "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
     "Jika tujuan tidak jelas, jangan melakukan aksi."
 )
-# Cheap shape guard for the OpenRouter key in preflight (T7). Deliberately
-# conservative: only catches clearly-invalid values (missing prefix, the
-# .env.example placeholder, or far too short); real OpenRouter keys are far
-# longer than OPENROUTER_KEY_MIN_LENGTH.
-OPENROUTER_KEY_PREFIX = "sk-or-v1-"
-OPENROUTER_KEY_MIN_LENGTH = 40
+# Cheap shape guard for the OpenAI key in preflight. Deliberately conservative:
+# it catches clearly invalid values, while authentication remains the provider's
+# responsibility.
+OPENAI_KEY_PREFIX = "sk-"
+OPENAI_KEY_MIN_LENGTH = 40
 # Optional Minotaur retreat destination. None preserves the legacy behavior
 # (both visible labels accepted); an explicit value makes the destination strict.
 RETREAT_DESTINATION_ENV = "DN_RETREAT_DESTINATION"
@@ -116,17 +119,16 @@ def _int_env(name: str, default: Optional[str] = None) -> Optional[int]:
         ) from None
 
 
-def _is_plausible_openrouter_key(value: str) -> bool:
-    """Cheap shape check: expected prefix plus a reasonable minimum length.
+def _is_plausible_openai_key(value: str) -> bool:
+    """Cheap shape check for an OpenAI project or user key.
 
-    Never rejects a real OpenRouter key (those are far longer than
-    ``OPENROUTER_KEY_MIN_LENGTH``); it only catches clearly-invalid values
-    such as the ``.env.example`` placeholder so preflight can fail fast
-    instead of discovering a 401 at runtime.
+    Authentication remains the provider's responsibility. This only catches
+    clearly invalid values so preflight can fail before the countdown.
     """
     return (
-        value.startswith(OPENROUTER_KEY_PREFIX)
-        and len(value) >= OPENROUTER_KEY_MIN_LENGTH
+        value.startswith(OPENAI_KEY_PREFIX)
+        and not value.startswith("sk-or-v1-")
+        and len(value) >= OPENAI_KEY_MIN_LENGTH
     )
 
 
@@ -156,23 +158,23 @@ def resolve_retreat_destination(cli_value: str | None = None) -> str | None:
 
 
 def _request_timeout() -> int:
-    """Seconds before an OpenRouter request is aborted (env OPENROUTER_TIMEOUT).
+    """Seconds before an OpenAI request is aborted (env OPENAI_TIMEOUT).
 
-    Defaults to ``OPENROUTER_TIMEOUT_DEFAULT`` (60 s). Fails fast with a clear
+    Defaults to ``OPENAI_TIMEOUT_DEFAULT`` (60 s). Fails fast with a clear
     message on non-integer or non-positive values, mirroring the ``_int_env``
     parsing pattern.
 
-    Parsing happens at client construction (``get_openrouter_client``), not in
+    Parsing happens at client construction (``get_openai_client``), not in
     preflight: preflight is intentionally unchanged, and a malformed value
     still surfaces at session start before the first request.
 
     Raises:
         ValueError: If the configured value is not a positive integer.
     """
-    timeout = _int_env("OPENROUTER_TIMEOUT", str(OPENROUTER_TIMEOUT_DEFAULT))
+    timeout = _int_env("OPENAI_TIMEOUT", str(OPENAI_TIMEOUT_DEFAULT))
     if timeout <= 0:
         raise ValueError(
-            "OPENROUTER_TIMEOUT harus berupa bilangan bulat positif (detik)."
+            "OPENAI_TIMEOUT harus berupa bilangan bulat positif (detik)."
         ) from None
     return timeout
 
@@ -226,21 +228,21 @@ def preflight_configuration(retreat_destination: object = _UNSET) -> None:
             "Script ini hanya mendukung Windows: cek fokus jendela dan input "
             "fisik bergantung pada API Windows. Jalankan pada Windows 10/11."
         )
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY belum diatur. Copy .env.example menjadi .env "
+            "OPENAI_API_KEY belum diatur. Copy .env.example menjadi .env "
             "dan isi API key secara lokal."
         )
-    if not _is_plausible_openrouter_key(api_key):
+    if not _is_plausible_openai_key(api_key):
         raise RuntimeError(
-            "OPENROUTER_API_KEY tampak tidak valid: harus diawali 'sk-or-v1-' "
-            "dengan panjang minimal yang wajar. Isi API key OpenRouter asli di "
+            "OPENAI_API_KEY tampak tidak valid: harus diawali 'sk-' "
+            "dengan panjang minimal yang wajar. Isi API key OpenAI asli di "
             ".env — jangan memakai placeholder dari .env.example."
         )
-    if not os.getenv("OPENROUTER_MODEL", "").strip():
+    if not os.getenv("OPENAI_MODEL", "").strip():
         raise RuntimeError(
-            "OPENROUTER_MODEL belum diatur. Pilih model OpenRouter yang "
+            "OPENAI_MODEL belum diatur. Pilih model OpenAI yang "
             "mendukung vision dan tool calling."
         )
     if not os.getenv("DN_WINDOW_TITLE", "").strip():

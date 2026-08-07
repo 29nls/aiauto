@@ -265,7 +265,7 @@ def replay_trace(
 ) -> ReplayReport:
     """Replay claims through the live validation and action paths.
 
-    No OpenRouter call, screenshot capture, focus check, sleep, or physical
+    No OpenAI call, screenshot capture, focus check, sleep, or physical
     input occurs. The claim is parsed and validated, the action budget is
     checked, ``execute_game_action`` runs against a synthetic frame and
     ``ReplayDevice``, and ``FarmWatchdog.advance`` commits only after success.

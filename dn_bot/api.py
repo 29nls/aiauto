@@ -1,4 +1,4 @@
-"""OpenRouter client, error classification, and the model tool contract."""
+"""OpenAI client, error classification, and the model tool contract."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from .config import (
     API_ERROR_DETAIL_MAX,
     API_MAX_ATTEMPTS,
     API_RETRY_BASE_DELAY,
-    OPENROUTER_BASE_URL,
     EmergencyStop,
     FocusLost,
     _request_timeout,
@@ -121,23 +120,22 @@ Aturan aksi:
 """
 
 
-def get_openrouter_client() -> OpenAI:
-    """Create an OpenAI-compatible client pointed at OpenRouter.
+def get_openai_client() -> OpenAI:
+    """Create a client for the official OpenAI API.
 
-    The client carries a bounded request timeout (``OPENROUTER_TIMEOUT``,
+    The client carries a bounded request timeout (``OPENAI_TIMEOUT``,
     default 60 s) so a hung request aborts instead of holding the session for
     the SDK default; a timeout surfaces as an ``APITimeoutError`` which the
     error taxonomy classifies as a retryable network-kind failure.
     """
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "OPENROUTER_API_KEY belum diatur. Copy .env.example menjadi .env "
+            "OPENAI_API_KEY belum diatur. Copy .env.example menjadi .env "
             "dan isi API key secara lokal."
         )
 
     return OpenAI(
-        base_url=OPENROUTER_BASE_URL,
         api_key=api_key,
         timeout=_request_timeout(),
     )
@@ -148,17 +146,17 @@ def get_openrouter_client() -> OpenAI:
 _RETRYABLE_API_KINDS = {"rate_limit", "server", "network"}
 
 API_ERROR_MESSAGES = {
-    "auth": "OPENROUTER_API_KEY tidak valid atau kedaluwarsa (401/403); periksa .env.",
-    "not_found": "Model tidak ditemukan (404); periksa OPENROUTER_MODEL dan base URL.",
+    "auth": "OPENAI_API_KEY tidak valid atau kedaluwarsa (401/403); periksa .env.",
+    "not_found": "Model tidak ditemukan (404); periksa OPENAI_MODEL.",
     "invalid_request": (
         "Permintaan ditolak (400/422); pastikan model mendukung vision dan tool "
         "calling. Jika konteks penuh, mulai sesi baru."
     ),
-    "rate_limit": "Batas kecepatan OpenRouter (429); coba lagi nanti atau ganti model.",
-    "server": "OpenRouter melaporkan gangguan server (5xx); coba lagi nanti.",
+    "rate_limit": "Batas kecepatan OpenAI (429); coba lagi nanti.",
+    "server": "OpenAI melaporkan gangguan server (5xx); coba lagi nanti.",
     "network": "Koneksi jaringan gagal; periksa koneksi internet.",
-    "http": "OpenRouter mengembalikan error HTTP yang tidak dikenal.",
-    "unknown": "Kesalahan OpenRouter yang tidak dikenal.",
+    "http": "OpenAI mengembalikan error HTTP yang tidak dikenal.",
+    "unknown": "Kesalahan OpenAI yang tidak dikenal.",
 }
 
 
@@ -190,7 +188,7 @@ def _parse_model_reply(response: Any) -> ModelReply:
 
     Parsing ini dipanggil di luar loop retry: error dari isi respons (tool tak
     dikenal, arguments non-JSON) bukan error API transien dan tidak boleh
-    di-retry maupun diklasifikasi sebagai error OpenRouter.
+    di-retry maupun diklasifikasi sebagai error OpenAI.
     """
     message = response.choices[0].message
     return ModelReply(
@@ -199,7 +197,7 @@ def _parse_model_reply(response: Any) -> ModelReply:
     )
 
 
-def _call_openrouter(
+def _call_openai(
     client: OpenAI,
     model: str,
     messages: list[dict[str, Any]],
@@ -207,7 +205,7 @@ def _call_openrouter(
     system_prompt: str = SYSTEM_PROMPT,
     tools: list[dict[str, Any]] | None = None,
 ) -> ModelReply:
-    """Call the model with bounded retries, returning a plain ModelReply.
+    """Call OpenAI with bounded retries, returning a plain ModelReply.
 
     Retries wrap the request itself, never tool execution or response parsing,
     so a retried or failed call can never repeat a physical action and a
@@ -230,7 +228,7 @@ def _call_openrouter(
                 tool_choice="auto",
             )
             log.info(
-                "OpenRouter request selesai dalam %.2f s (attempt %s/%s)",
+                "OpenAI request selesai dalam %.2f s (attempt %s/%s)",
                 time.monotonic() - started,
                 attempt,
                 API_MAX_ATTEMPTS,
@@ -260,7 +258,7 @@ def _call_openrouter(
                 ) from None
             delay = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             log.warning(
-                "OpenRouter %s (percobaan %s/%s, %.2f s); mencoba lagi dalam %.1f detik.",
+                "OpenAI %s (percobaan %s/%s, %.2f s); mencoba lagi dalam %.1f detik.",
                 kind,
                 attempt,
                 API_MAX_ATTEMPTS,
@@ -278,8 +276,14 @@ def _call_openrouter(
     return _parse_model_reply(response)
 
 
+# Backward compatible names for callers that imported the old adapter symbols.
+# They use the official OpenAI endpoint and do not retain OpenRouter behavior.
+get_openrouter_client = get_openai_client
+_call_openrouter = _call_openai
+
+
 def extract_tool_requests(message: Any) -> list[ToolRequest]:
-    """Parse OpenRouter/OpenAI function calls into validated tool requests."""
+    """Parse OpenAI function calls into validated tool requests."""
     requests = []
     for call in getattr(message, "tool_calls", None) or []:
         if call.function.name != "dragon_nest_action":

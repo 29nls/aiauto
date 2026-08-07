@@ -17,16 +17,16 @@ Stempel commit dasar: `91bf7e4` (HEAD saat inventaris ditulis, 2026-08-06). Veri
 | 007 | Indirect prompt injection via teks screenshot | F-01 (VERIFY-001) | Medium (potensi High saat live) | ✅ Mitigated (verifikasi live belum) | [007-f01-prompt-injection-live-verification.md](007-f01-prompt-injection-live-verification.md) — runbook |
 | 008 | Versi actions CI ketinggalan (pin SHA tidak menerima backport) | F-07 | Low | ✅ Fixed | [008-f07-upgrade-ci-actions.md](008-f07-upgrade-ci-actions.md) — ✅ verified (2026-08-06) |
 | 009 | Kandidat #1: global capture state → Frame module | — | — | ✅ Done | [009-arch1-frame-module.md](009-arch1-frame-module.md) — ✅ verified (2026-08-06) |
-| 010 | Kandidat #2: adapter OpenRouter hasil model polos | — | — | ✅ Done | [010-arch2-openrouter-plain-adapter.md](010-arch2-openrouter-plain-adapter.md) — ✅ verified (2026-08-06) |
+| 010 | Kandidat #2: adapter OpenAI hasil model polos | — | — | ✅ Done | [010-arch2-openrouter-plain-adapter.md](010-arch2-openrouter-plain-adapter.md) — ✅ verified (2026-08-06) |
 | 011 | Kandidat #3: satu module kontrak wire-shape pesan | — | — | ✅ Done | [011-arch3-message-contract-module.md](011-arch3-message-contract-module.md) — ✅ verified (2026-08-06) |
 | 012 | Kandidat #4: seam input device nyata | — | — | ✅ Done (via 015) | [012-arch4-input-device-seam.md](012-arch4-input-device-seam.md) — ✅ verified (2026-08-06) |
 
 ## Urutan eksekusi yang direkomendasikan
 
 1. **006 (F-06)** dan **008 (F-07)** — item keamanan inventaris 12-temuan kini **semuanya selesai** (fixed 2026-08-06).
-2. **011 (kontrak wire-shape)** → **010 (adapter OpenRouter)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **125**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
+2. **011 (kontrak wire-shape)** → **010 (adapter OpenAI)** → **012/015 (seam input)** — SELESAI 2026-08-06 (010/011: 67 tes; 012/015: 71 tes saat itu; suite kini **125**). **Seluruh kandidat arsitektur (009–012) sudah tuntas & diverifikasi — retired.**
 3. **001–005 dan 009 (verify)** — verifikasi cepat bahwa mitigasi/fix masih berdiri + tes menjaganya; dapat di-batch dan dijalankan ulang sebelum commit besar.
-4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenRouter + model vision/tools); BLOCKED sampai user menyediakannya.
+4. **007 (F-01 live)** — **butuh lingkungan eksternal** (game Dragon Nest + API key OpenAI + model vision/tools); BLOCKED sampai user menyediakannya.
 
 ## Catatan inventaris
 
@@ -81,7 +81,7 @@ Verifikasi plan **Done/Fixed** terhadap kode live. Semua invarian machine-checka
 | 004 | 0 `int(os.getenv)` mentah (semua lewat `_int_env`); pesan per-variabel jelas | ✅ |
 | 005 | sanitasi sebelum interpolasi (safety.py:67) + uji C1 manual (8-bit CSI `\x9b`/`\x1b` ter-strip) | ✅ |
 | 009 | 0 global capture state (`_capture_region`/`_capture_geometry`), 0 `global`, 4 call site `_physical_point(..., frame)` | ✅ |
-| 010 | 0 `response.choices`/`.choices[0]`/`.tool_calls` di orchestrator; `_call_openrouter` → `ModelReply`, parse di luar loop retry | ✅ |
+| 010 | 0 `response.choices`/`.choices[0]`/`.tool_calls` di orchestrator; `_call_openai` → `ModelReply`, parse di luar loop retry | ✅ |
 | 011 | 0 dict role mentah di orchestrator/capture (semua lewat `messages.py`) | ✅ |
 | 016 | 4 tes integration end-to-end; suite 83 | ✅ |
 
@@ -117,10 +117,10 @@ Kandidat dari survey read-only terakhir (setelah seluruh kandidat arsitektur 009
 
 | Kandidat | Yang dikirim | Commit |
 |----------|--------------|--------|
-| T1 — client timeout | `OPENROUTER_TIMEOUT` (default 60 s; `_request_timeout` di config.py, fail-fast untuk non-positif), diteruskan ke `OpenAI(..., timeout=...)`; error timeout → kind `network` (retryable) | `e1bcef9` |
+| T1 — client timeout | `OPENAI_TIMEOUT` (default 60 s; `_request_timeout` di config.py, fail-fast untuk non-positif), diteruskan ke `OpenAI(..., timeout=...)`; error timeout → kind `network` (retryable) | `e1bcef9` |
 | T2 — backoff emergency-responsive | jeda retry memakai `safety._safe_sleep` (cek pojok failsafe + fokus tiap ≤50 ms); `except (EmergencyStop, FocusLost): raise` sebelum broad `except Exception`; retry tetap tanpa efek samping | `273e2a7` |
 | T3+T6 — instruction configurable & tree README | `--instruction` / `DN_INSTRUCTION` → `_resolve_instruction` (CLI > env > `DEFAULT_INSTRUCTION`, byte-identical); struktur file README disinkronkan | `2866a7e` |
-| T7 — key preflight | preflight menolak key tanpa prefix `sk-or-v1-` / terlalu pendek (`OPENROUTER_KEY_MIN_LENGTH`), pesan actionable (placeholder `.env.example` ditolak) | `c377f4c` |
+| T7 — key preflight | preflight menolak key tanpa prefix `sk-` / terlalu pendek (`OPENAI_KEY_MIN_LENGTH`), pesan actionable (placeholder `.env.example` ditolak) | `c377f4c` |
 | T5 — CI matrix & hardening | matrix Python 3.10/3.12/3.14 (`fail-fast: false`), `timeout-minutes: 10`, `pip check`, pip cache — pin SHA + least-privilege tetap | `009fb5a` |
 | T4 — packaging | `pyproject.toml` (setuptools): package `dn_bot`, console script `dn-bot = dn_bot.__main__:main`, mirror deps `requirements.txt` + tes drift, `requires-python >= 3.10`; `.gitignore` + `*.egg-info/`/`build/`/`dist/` | `217b78e` |
 

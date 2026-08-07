@@ -209,6 +209,7 @@ def run_dn_bot(
                         request.input.get("farm_state"),
                         action,
                         request.input.get("text"),
+                        request.input.get("coordinate"),
                     )
                     watchdog.ensure_action_allowed(candidate_state)
                 try:
@@ -222,9 +223,9 @@ def run_dn_bot(
                     )
                     result = f"Aksi {action!r} berhasil dijalankan."
                     if watchdog is not None:
-                        watchdog.advance(candidate_state)
+                        watchdog.advance(candidate_state, action)
                     log.info("Aksi: %s", action)
-                except (EmergencyStop, FocusLost):
+                except (EmergencyStop, FocusLost, FarmSafetyStop):
                     raise
                 except Exception as error:
                     log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")

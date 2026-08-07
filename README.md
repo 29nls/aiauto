@@ -103,7 +103,7 @@ Untuk workflow farming yang memang diizinkan oleh game/server, gunakan profil Mi
 python -m dn_bot --farm-profile minotaur --until-stopped
 ```
 
-Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dungeon` → `combat` → `boss_reward` → `loot_chest` → `loot_result` → `return_navigation` → kembali ke `pre_dungeon`. Setelah boss mati, agent melewati pemilihan box/review, mencari peti loot di map, mengklik peti yang terlihat jelas, lalu memakai `F12` untuk membuka UI town/stage sebelum memulai run berikutnya. Setiap respons model wajib menyatakan state farming berikutnya; transisi yang tidak legal, layar ambigu, aksi berulang tanpa progres, state terlalu lama, atau run yang melewati batas aksi akan masuk ke `recovery`. Jika recovery juga macet atau berulang melewati batas, sesi berhenti dengan aman.
+Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dungeon` → `combat` → `boss_reward` → `loot_chest` → `loot_result` → `retreat_dialog` → `return_wait` → kembali ke `pre_dungeon`. Setelah boss mati, agent melewati pemilihan box/review, mencari peti loot di map, mengklik peti yang terlihat jelas, menunggu loot stabil pada state `loot_result`, lalu memakai `F12` untuk membuka dialog pilihan `Stage Entrance`/`Town`. Pada `retreat_dialog`, hanya klik opsi yang jelas atau `wait` yang diizinkan; setelah memilih lokasi, `return_wait` hanya boleh `wait` sampai layar siap. Setiap respons model wajib menyatakan state farming berikutnya; transisi yang tidak legal, layar ambigu, aksi berulang tanpa progres, state terlalu lama, atau run yang melewati batas aksi akan masuk ke `recovery`. Jika recovery juga macet atau berulang melewati batas, sesi berhenti dengan aman.
 
 `--until-stopped` tidak menghapus guard: emergency stop, `Ctrl+C`, fokus jendela, timeout per state, dan watchdog tetap aktif. Mode ini tidak memakai koordinat hardcoded; klik peti dan UI ditentukan dari screenshot terbaru oleh model dan tetap melewati validasi aksi yang sama. Untuk rehearsal tanpa input fisik:
 
@@ -199,7 +199,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
 │   ├── test_dn_bot.py
 │   ├── test_integration.py # Tes integration end-to-end loop (plan 016)
-│   └── test_farm.py        # Tes state machine, watchdog, F12, dan CLI farming
+│   └── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
 ├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
 │   └── tests.yml
 ├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)

@@ -20,7 +20,7 @@ from .config import (
     _request_timeout,
     log,
 )
-from .farm import farm_state_values
+from .farm import farm_action_values, farm_state_values
 from .messages import ModelReply, ToolRequest
 from .safety import _safe_sleep, _sanitize_log_text
 
@@ -76,6 +76,9 @@ DRAGON_NEST_TOOL = {
 MINOTAUR_TOOL = deepcopy(DRAGON_NEST_TOOL)
 MINOTAUR_TOOL["function"]["description"] += (
     " In Minotaur farming mode, include the observed next farm_state."
+)
+MINOTAUR_TOOL["function"]["parameters"]["properties"]["action"]["enum"] = list(
+    farm_action_values()
 )
 MINOTAUR_TOOL["function"]["parameters"]["properties"]["farm_state"] = {
     "type": "string",

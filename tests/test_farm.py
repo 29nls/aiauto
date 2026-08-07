@@ -267,6 +267,9 @@ def test_farm_exit_phases_enforce_golden_path_and_forbidden_actions():
     with pytest.raises(dn_bot.FarmSafetyStop, match="Loot belum stabil"):
         watchdog.validate_and_advance("retreat_dialog", "press_action_key", "f12")
     watchdog.validate_and_advance("loot_result", "wait")
+    with pytest.raises(dn_bot.FarmSafetyStop, match="tidak diizinkan"):
+        watchdog.validate_and_advance("loot_result", "press_action_key", "f12")
+
     watchdog.validate_and_advance("retreat_dialog", "press_action_key", "f12")
 
     with pytest.raises(dn_bot.FarmSafetyStop, match="tidak boleh menekan F12"):
@@ -311,6 +314,7 @@ def test_retreat_dialog_rejects_unlabeled_same_state_click_and_allows_wait():
         watchdog.validate_and_advance(
             "retreat_dialog", "left_click", "other", coordinate=[650, 400]
         )
+    watchdog.validate_and_advance("retreat_dialog", "wait")
     watchdog.validate_and_advance("retreat_dialog", "wait")
 
 
@@ -388,6 +392,40 @@ def test_farm_loop_executes_explicit_exit_phases_with_recorder(capture_region):
         ("moveTo", (700, 400)),
         ("click", ()),
     ]
+
+
+def test_minotaur_policy_drives_watchdog_schema_and_prompt():
+    policy = dn_bot.MINOTAUR_PHASE_POLICY
+    profile = dn_bot.MINOTAUR_PROFILE
+
+    with pytest.raises(TypeError):
+        policy[dn_bot.FarmState.PRE_DUNGEON] = policy[dn_bot.FarmState.PRE_DUNGEON]
+    assert profile.phase_policy is policy
+    assert profile.allowed_actions == {
+        state: phase.allowed_actions for state, phase in policy.items()
+    }
+    assert profile.transitions == {
+        state: phase.transitions for state, phase in policy.items()
+    }
+    assert [
+        state.value
+        for state in policy
+    ] == dn_bot.MINOTAUR_TOOL["function"]["parameters"]["properties"]["farm_state"]["enum"]
+    assert list(dn_bot.farm_action_values()) == dn_bot.MINOTAUR_TOOL["function"]["parameters"]["properties"]["action"]["enum"]
+    assert dn_bot.MINOTAUR_TOOL["function"]["parameters"]["properties"]["action"]["enum"] == list(
+        dn_bot.DRAGON_NEST_TOOL["function"]["parameters"]["properties"]["action"]["enum"]
+    )
+
+    prompt = profile.system_prompt
+    assert dn_bot.farm.farm_policy_prompt(policy) in prompt
+    for state, phase in policy.items():
+        assert state.value in prompt
+        for action in phase.allowed_actions:
+            assert action in prompt
+        for target in phase.transitions:
+            assert target.value in prompt
+    assert "Town atau Stage Entrance" in prompt
+    assert "requires a stable loot wait" in prompt
 
 
 def test_minotaur_tool_requires_farm_state():

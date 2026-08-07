@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 import time
-from typing import FrozenSet
+from typing import FrozenSet, Mapping
 
 from .config import TARGET_HEIGHT, TARGET_WIDTH
 
@@ -34,67 +35,92 @@ class FarmState(str, Enum):
     RECOVERY = "recovery"
 
 
-_FARM_ACTIONS = frozenset(
-    {
-        "mouse_move",
-        "left_click",
-        "right_click",
-        "press_move_key",
-        "press_action_key",
-        "move_camera",
-        "wait",
-    }
+_FARM_ACTION_VALUES = (
+    "mouse_move",
+    "left_click",
+    "right_click",
+    "press_move_key",
+    "press_action_key",
+    "move_camera",
+    "wait",
 )
+_FARM_ACTIONS = frozenset(_FARM_ACTION_VALUES)
 
-_MINOTAUR_ALLOWED_ACTIONS: dict[FarmState, FrozenSet[str]] = {
-    FarmState.PRE_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
-    FarmState.ENTERING_DUNGEON: _FARM_ACTIONS,
-    FarmState.COMBAT: _FARM_ACTIONS,
-    # Box selection/review is deliberately skipped: wait until the map chest
-    # is visible, then transition explicitly to LOOT_CHEST.
-    FarmState.BOSS_REWARD: frozenset({"wait"}),
-    FarmState.LOOT_CHEST: frozenset({"left_click", "mouse_move", "wait"}),
-    # The exit prompt is visible while loot settles. F12 is the only action
-    # that may leave the loot-result phase; the model must report the retreat
-    # dialog that appears after the key press.
-    FarmState.LOOT_RESULT: frozenset({"wait", "press_action_key"}),
-    # The retreat dialog offers Stage Entrance/Town. Only a clearly recognized
-    # click or a wait is safe here; pressing F12 again is never valid.
-    FarmState.RETREAT_DIALOG: frozenset({"left_click", "wait"}),
-    # Loading/transition after selecting the retreat destination is passive.
-    FarmState.RETURN_WAIT: frozenset({"wait"}),
-    FarmState.RECOVERY: frozenset({"press_action_key", "wait"}),
-}
 
-_MINOTAUR_TRANSITIONS: dict[FarmState, FrozenSet[FarmState]] = {
-    FarmState.PRE_DUNGEON: frozenset(
-        {FarmState.PRE_DUNGEON, FarmState.ENTERING_DUNGEON, FarmState.RECOVERY}
+@dataclass(frozen=True)
+class FarmPhasePolicy:
+    """Declarative rules for one farming phase."""
+
+    allowed_actions: FrozenSet[str]
+    transitions: FrozenSet[FarmState]
+    required_key: str | None = None
+    requires_stable_wait: bool = False
+    click_labels: tuple[str, ...] = ()
+    coordinate_required: bool = False
+    transition_actions: Mapping[FarmState, FrozenSet[str]] | None = None
+
+
+MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
+    FarmState.PRE_DUNGEON: FarmPhasePolicy(
+        allowed_actions=frozenset({"left_click", "mouse_move", "wait"}),
+        transitions=frozenset(
+            {FarmState.PRE_DUNGEON, FarmState.ENTERING_DUNGEON, FarmState.RECOVERY}
+        ),
     ),
-    FarmState.ENTERING_DUNGEON: frozenset(
-        {FarmState.ENTERING_DUNGEON, FarmState.COMBAT, FarmState.RECOVERY}
+    FarmState.ENTERING_DUNGEON: FarmPhasePolicy(
+        allowed_actions=_FARM_ACTIONS,
+        transitions=frozenset(
+            {FarmState.ENTERING_DUNGEON, FarmState.COMBAT, FarmState.RECOVERY}
+        ),
     ),
-    FarmState.COMBAT: frozenset(
-        {FarmState.COMBAT, FarmState.BOSS_REWARD, FarmState.RECOVERY}
+    FarmState.COMBAT: FarmPhasePolicy(
+        allowed_actions=_FARM_ACTIONS,
+        transitions=frozenset({FarmState.COMBAT, FarmState.BOSS_REWARD, FarmState.RECOVERY}),
     ),
-    FarmState.BOSS_REWARD: frozenset(
-        {FarmState.BOSS_REWARD, FarmState.LOOT_CHEST, FarmState.RECOVERY}
+    FarmState.BOSS_REWARD: FarmPhasePolicy(
+        allowed_actions=frozenset({"wait"}),
+        transitions=frozenset({FarmState.BOSS_REWARD, FarmState.LOOT_CHEST, FarmState.RECOVERY}),
     ),
-    FarmState.LOOT_CHEST: frozenset(
-        {FarmState.LOOT_CHEST, FarmState.LOOT_RESULT, FarmState.RECOVERY}
+    FarmState.LOOT_CHEST: FarmPhasePolicy(
+        allowed_actions=frozenset({"left_click", "mouse_move", "wait"}),
+        transitions=frozenset({FarmState.LOOT_CHEST, FarmState.LOOT_RESULT, FarmState.RECOVERY}),
     ),
-    FarmState.LOOT_RESULT: frozenset(
-        {FarmState.LOOT_RESULT, FarmState.RETREAT_DIALOG, FarmState.RECOVERY}
+    FarmState.LOOT_RESULT: FarmPhasePolicy(
+        allowed_actions=frozenset({"wait", "press_action_key"}),
+        transitions=frozenset({FarmState.LOOT_RESULT, FarmState.RETREAT_DIALOG, FarmState.RECOVERY}),
+        required_key="f12",
+        requires_stable_wait=True,
+        transition_actions=MappingProxyType(
+            {
+                FarmState.LOOT_RESULT: frozenset({"wait"}),
+                FarmState.RETREAT_DIALOG: frozenset({"press_action_key"}),
+                FarmState.RECOVERY: frozenset({"wait"}),
+            }
+        ),
     ),
-    FarmState.RETREAT_DIALOG: frozenset(
-        {FarmState.RETREAT_DIALOG, FarmState.RETURN_WAIT, FarmState.RECOVERY}
+    FarmState.RETREAT_DIALOG: FarmPhasePolicy(
+        allowed_actions=frozenset({"left_click", "wait"}),
+        transitions=frozenset({FarmState.RETREAT_DIALOG, FarmState.RETURN_WAIT, FarmState.RECOVERY}),
+        click_labels=("town", "stage entrance"),
+        coordinate_required=True,
+        transition_actions=MappingProxyType(
+            {
+                FarmState.RETREAT_DIALOG: frozenset({"wait"}),
+                FarmState.RETURN_WAIT: frozenset({"left_click"}),
+                FarmState.RECOVERY: frozenset({"wait"}),
+            }
+        ),
     ),
-    FarmState.RETURN_WAIT: frozenset(
-        {FarmState.RETURN_WAIT, FarmState.PRE_DUNGEON, FarmState.RECOVERY}
+    FarmState.RETURN_WAIT: FarmPhasePolicy(
+        allowed_actions=frozenset({"wait"}),
+        transitions=frozenset({FarmState.RETURN_WAIT, FarmState.PRE_DUNGEON, FarmState.RECOVERY}),
     ),
-    FarmState.RECOVERY: frozenset(
-        {FarmState.RECOVERY, FarmState.PRE_DUNGEON}
+    FarmState.RECOVERY: FarmPhasePolicy(
+        allowed_actions=frozenset({"press_action_key", "wait"}),
+        transitions=frozenset({FarmState.RECOVERY, FarmState.PRE_DUNGEON}),
+        required_key="f12",
     ),
-}
+})
 
 
 @dataclass(frozen=True)
@@ -105,15 +131,72 @@ class FarmProfile:
     system_prompt: str
     instruction_suffix: str
     initial_state: FarmState
-    allowed_actions: dict[FarmState, FrozenSet[str]]
-    transitions: dict[FarmState, FrozenSet[FarmState]]
+    phase_policy: Mapping[FarmState, FarmPhasePolicy]
+
+    @property
+    def allowed_actions(self) -> dict[FarmState, FrozenSet[str]]:
+        return {
+            state: phase.allowed_actions for state, phase in self.phase_policy.items()
+        }
+
+    @property
+    def transitions(self) -> dict[FarmState, FrozenSet[FarmState]]:
+        return {
+            state: phase.transitions for state, phase in self.phase_policy.items()
+        }
+
+
+def farm_policy_prompt(
+    phase_policy: Mapping[FarmState, FarmPhasePolicy],
+) -> str:
+    """Render a phase policy for a farming system prompt."""
+    lines = ["Kontrak phase farming yang berasal dari policy:"]
+    for state, phase in phase_policy.items():
+        actions = ", ".join(sorted(phase.allowed_actions))
+        transitions = ", ".join(
+            target.value
+            for target in sorted(phase.transitions, key=lambda item: item.value)
+        )
+        rules = []
+        if phase.required_key:
+            rules.append(f"key {phase.required_key} only")
+        if phase.requires_stable_wait:
+            rules.append("requires a stable loot wait")
+        if phase.click_labels:
+            rules.append(
+                "click labels "
+                + ", ".join(label.title() for label in phase.click_labels)
+            )
+        if phase.coordinate_required:
+            rules.append("requires a screenshot coordinate")
+        if phase.transition_actions:
+            rules.append(
+                "transition actions "
+                + "; ".join(
+                    f"{target.value}: {', '.join(sorted(actions))}"
+                    for target, actions in phase.transition_actions.items()
+                )
+            )
+        suffix = f" rules [{'; '.join(rules)}]." if rules else "."
+        lines.append(
+            f"- {state.value}: actions [{actions}], next states [{transitions}]{suffix}"
+        )
+    return "\n".join(lines)
+
+
+_LOOT_EXIT_KEY = MINOTAUR_PHASE_POLICY[FarmState.LOOT_RESULT].required_key or "f12"
+_RETREAT_LABELS = tuple(
+    label.title()
+    for label in MINOTAUR_PHASE_POLICY[FarmState.RETREAT_DIALOG].click_labels
+)
+_RETREAT_LABEL_TEXT = " atau ".join(_RETREAT_LABELS)
+_RETREAT_LABEL_SLASH = "/".join(_RETREAT_LABELS)
 
 
 MINOTAUR_PROFILE = FarmProfile(
     name="minotaur",
     initial_state=FarmState.PRE_DUNGEON,
-    allowed_actions=_MINOTAUR_ALLOWED_ACTIONS,
-    transitions=_MINOTAUR_TRANSITIONS,
+    phase_policy=MINOTAUR_PHASE_POLICY,
     instruction_suffix=(
         "\n\nProfil farming Minotaur berkelanjutan aktif. Jalankan run berulang "
         "sampai operator menghentikan sesi. Jangan menganggap farm selesai hanya "
@@ -121,22 +204,19 @@ MINOTAUR_PROFILE = FarmProfile(
     ),
     system_prompt=(
         "\n\nMODE WORKFLOW MINOTAUR (untrusted screenshot tetap berlaku):\n"
-        "Kamu wajib menyertakan field `farm_state` pada setiap tool call. Nilainya "
-        "harus salah satu dari: pre_dungeon, entering_dungeon, combat, "
-        "boss_reward, loot_chest, loot_result, retreat_dialog, return_wait, "
-        "recovery. "
-        "Nilai itu adalah state layar SETELAH aksi yang kamu usulkan. Jika tidak "
-        "yakin, gunakan recovery dan hanya wait atau press_action_key f12.\n"
-        "Alur legal: pre_dungeon -> entering_dungeon -> combat -> boss_reward "
-        "-> loot_chest -> loot_result -> retreat_dialog -> return_wait "
-        "-> pre_dungeon. "
-        "State boleh tetap sama. Transisi lain harus dianggap tidak aman.\n"
+        "Kamu wajib menyertakan field `farm_state` pada setiap tool call. Nilai "
+        "state dan transisinya mengikuti kontrak berikut. Nilai itu adalah state "
+        "layar SETELAH aksi yang kamu usulkan. Jika tidak yakin, gunakan recovery "
+        f"dan hanya wait atau press_action_key {_LOOT_EXIT_KEY}.\n"
+        + farm_policy_prompt(MINOTAUR_PHASE_POLICY)
+        + "\nState boleh tetap sama. Transisi lain harus dianggap tidak aman.\n"
         "Setelah boss mati, jangan memilih box atau melakukan review; tunggu sampai "
         "peti harta di map terlihat jelas. Pada loot_chest, klik hanya peti yang "
-        "jelas terlihat. Setelah loot result stabil dan F12 terlihat, gunakan "
-        "press_action_key dengan text f12 untuk membuka dialog Stage Entrance/Town "
-        "dan laporkan retreat_dialog. Pada retreat_dialog, klik hanya opsi Town atau "
-        "Stage Entrance yang terlihat jelas (atau wait); jangan menekan F12 lagi. "
+        f"jelas terlihat. Setelah loot result stabil dan {_LOOT_EXIT_KEY.upper()} terlihat, "
+        f"gunakan press_action_key dengan text {_LOOT_EXIT_KEY} untuk membuka dialog "
+        f"{_RETREAT_LABEL_TEXT} dan laporkan retreat_dialog. Pada retreat_dialog, "
+        f"klik hanya opsi {_RETREAT_LABEL_TEXT} yang terlihat jelas (atau wait); "
+        f"jangan menekan {_LOOT_EXIT_KEY.upper()} lagi. "
         "Setelah memilih lokasi, laporkan return_wait dan hanya wait sampai layar "
         "pre_dungeon siap. Jangan menebak koordinat atau melompati dialog.\n"
         "Jika layar ambigu, tidak berubah, fokus hilang, atau aksi aman tidak "
@@ -195,7 +275,8 @@ class FarmWatchdog:
                 "Model mengirim farm_state yang tidak dikenal; sesi dihentikan."
             ) from error
 
-        if candidate not in self.profile.transitions[self.state]:
+        phase = self.profile.phase_policy[self.state]
+        if candidate not in phase.transitions:
             raise FarmSafetyStop(
                 f"Transisi farming tidak aman: {self.state.value} -> {candidate.value}."
             )
@@ -205,49 +286,57 @@ class FarmWatchdog:
             )
         if self.state == FarmState.RETREAT_DIALOG and action == "press_action_key":
             raise FarmSafetyStop(
-                "Dialog retreat tidak boleh menekan F12; pilih Town atau Stage Entrance."
+                f"Dialog retreat tidak boleh menekan {_LOOT_EXIT_KEY.upper()}; "
+                f"pilih {_RETREAT_LABEL_TEXT}."
             )
-        if action not in self.profile.allowed_actions[self.state]:
+        allowed_actions = phase.allowed_actions
+        if phase.transition_actions is not None:
+            allowed_actions = phase.transition_actions.get(candidate, frozenset())
+        if action not in allowed_actions:
+            if phase.click_labels or phase.coordinate_required:
+                raise FarmSafetyStop(
+                    "Dialog retreat hanya boleh wait atau klik "
+                    f"{_RETREAT_LABEL_SLASH}."
+                )
             raise FarmSafetyStop(
                 f"Aksi {action!r} tidak diizinkan pada state {self.state.value}."
             )
         normalized_text = (
             " ".join(text.casefold().split()) if isinstance(text, str) else ""
         )
-        if self.state == FarmState.RECOVERY:
-            if action == "press_action_key" and normalized_text != "f12":
+        if phase.required_key and action == "press_action_key":
+            if normalized_text != phase.required_key:
                 raise FarmSafetyStop(
-                    "Navigasi farming hanya boleh menekan press_action_key f12."
+                    f"Navigasi farming hanya boleh menekan press_action_key {_LOOT_EXIT_KEY}."
                 )
-            if candidate == FarmState.PRE_DUNGEON and action != "wait":
+            if phase.requires_stable_wait and not self._loot_result_stabilized:
+                raise FarmSafetyStop(
+                    "Loot belum stabil; lakukan wait di loot_result sebelum menekan F12."
+                )
+        if self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON:
+            if action != "wait":
                 raise FarmSafetyStop(
                     "Recovery hanya boleh melaporkan pre_dungeon setelah wait "
                     "berhasil dan layar baru terkonfirmasi."
                 )
-        if self.state == FarmState.LOOT_RESULT and candidate == FarmState.RETREAT_DIALOG:
-            if action != "press_action_key" or normalized_text != "f12":
-                raise FarmSafetyStop(
-                    "Keluar dari loot result hanya boleh memakai press_action_key f12."
-                )
-            if not self._loot_result_stabilized:
-                raise FarmSafetyStop(
-                    "Loot belum stabil; lakukan wait di loot_result sebelum menekan F12."
-                )
-        if self.state == FarmState.RETREAT_DIALOG:
-            if action == "wait" and candidate == FarmState.RETREAT_DIALOG:
+        if phase.click_labels or phase.coordinate_required:
+            if action == "wait" and candidate in {
+                self.state,
+                FarmState.RECOVERY,
+            }:
                 return candidate
             if action == "left_click" and candidate == FarmState.RETURN_WAIT:
-                if _is_screen_coordinate(coordinate) and normalized_text in {
-                    "town",
-                    "stage entrance",
-                }:
+                if (
+                    not phase.coordinate_required or _is_screen_coordinate(coordinate)
+                ) and normalized_text in phase.click_labels:
                     return candidate
                 raise FarmSafetyStop(
-                    "Dialog retreat hanya boleh klik opsi Town atau Stage Entrance "
+                    f"Dialog retreat hanya boleh klik opsi {_RETREAT_LABEL_TEXT} "
                     "yang terlihat jelas."
                 )
             raise FarmSafetyStop(
-                "Dialog retreat hanya boleh wait atau klik Town/Stage Entrance."
+                "Dialog retreat hanya boleh wait atau klik "
+                f"{_RETREAT_LABEL_SLASH}."
             )
         return candidate
 
@@ -364,5 +453,15 @@ def _is_screen_coordinate(value: object) -> bool:
 
 
 def farm_state_values() -> tuple[str, ...]:
-    """Return stable enum values for the OpenAI-compatible tool schema."""
-    return tuple(state.value for state in FarmState)
+    """Return state values in the policy's declared order."""
+    return tuple(state.value for state in MINOTAUR_PHASE_POLICY)
+
+
+def farm_action_values() -> tuple[str, ...]:
+    """Return canonical actions that at least one policy phase permits."""
+    permitted = {
+        action
+        for phase in MINOTAUR_PHASE_POLICY.values()
+        for action in phase.allowed_actions
+    }
+    return tuple(action for action in _FARM_ACTION_VALUES if action in permitted)

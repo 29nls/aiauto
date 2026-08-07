@@ -1,4 +1,7 @@
 import json
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -16,7 +19,18 @@ from dn_bot.recording import (
 from dn_bot.replay import ReplayResult, load_replay_trace, replay_trace
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _REGION = {"left": 0, "top": 0, "width": 1024, "height": 768}
+
+
+def _run_module(*args):
+    return subprocess.run(
+        [sys.executable, "-m", "dn_bot", *args],
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
 
 
 def _step_data():
@@ -198,6 +212,23 @@ def test_parse_args_accepts_record_trace():
         ["--farm-profile", "minotaur", "--record-trace", "run.json"]
     )
     assert args.record_trace == "run.json"
+
+
+def test_recorder_cli_requires_minotaur_profile_without_starting_session():
+    result = _run_module("--record-trace", "trace.json")
+
+    assert result.returncode != 0
+    assert "--record-trace membutuhkan --farm-profile minotaur" in result.stderr
+    assert result.stdout == ""
+
+
+def test_recorder_cli_help_lists_record_trace_without_starting_session():
+    result = _run_module("--help")
+
+    assert result.returncode == 0, result.stderr
+    help_text = " ".join(result.stdout.split())
+    assert "--record-trace PATH" in help_text
+    assert "Hanya valid bersama --farm-profile minotaur" in help_text
 
 
 def test_main_rejects_record_trace_without_minotaur_profile(tmp_path):

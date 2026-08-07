@@ -203,7 +203,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
-│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / --retreat-destination / DN_INSTRUCTION / --dry-run)
+│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / --retreat-destination / --record-trace / DN_INSTRUCTION / --dry-run)
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
@@ -220,7 +220,8 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── test_integration.py # Tes integration end-to-end loop (plan 016)
 │   ├── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
 │   ├── test_replay.py      # Tes runner replay trace Minotaur
-│   └── test_replay_cli.py  # Tes subcommand replay offline
+│   ├── test_replay_cli.py  # Tes subcommand replay offline
+│   └── test_recording.py   # Tes recorder trace, sanitization, atomic output, dan CLI
 ├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
 │   └── tests.yml
 ├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)

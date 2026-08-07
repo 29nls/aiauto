@@ -98,8 +98,11 @@ from .safety import (
     check_target_window,
 )
 from .replay import (
+    ReplayDeviceCall,
+    ReplayExpected,
     ReplayMismatch,
     ReplayReport,
+    ReplayResult,
     ReplayStep,
     ReplayTrace,
     ReplayTraceError,
@@ -197,8 +200,11 @@ __all__ = [
     "_new_session_id",
     "run_dn_bot",
     # Replay
+    "ReplayDeviceCall",
+    "ReplayExpected",
     "ReplayMismatch",
     "ReplayReport",
+    "ReplayResult",
     "ReplayStep",
     "ReplayTrace",
     "ReplayTraceError",

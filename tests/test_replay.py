@@ -3,7 +3,16 @@ import json
 import pytest
 
 import dn_bot
-from dn_bot.replay import ReplayMismatch, ReplayTrace, ReplayTraceError, replay_trace
+from dn_bot.replay import (
+    ReplayDeviceCall,
+    ReplayExpected,
+    ReplayMismatch,
+    ReplayResult,
+    ReplayTrace,
+    ReplayTraceError,
+    ReplayStep,
+    replay_trace,
+)
 
 
 def _step(frame_id, state, action, *, text=None, coordinate=None, before=None, after=None, calls=(), result="success"):
@@ -57,7 +66,7 @@ def test_replay_runs_golden_path_without_openrouter_or_physical_input():
 
 def test_replay_rejects_invalid_claim_and_action_without_device_calls():
     invalid_claim = _trace(_step("bad", "not_a_state", "wait", before="pre_dungeon", after="pre_dungeon"))
-    with pytest.raises(dn_bot.FarmSafetyStop):
+    with pytest.raises(ReplayTraceError, match="state farming"):
         replay_trace(invalid_claim)
 
     invalid_action = _trace(_step("bad-action", "pre_dungeon", "press_action_key", text="f12"))
@@ -148,6 +157,62 @@ def test_replay_preserves_recovery_budget_behavior():
         replay_trace(exhausted)
 
 
+def test_replay_expected_dataclasses_round_trip_to_version_one_wire_shape():
+    expected = ReplayExpected(
+        state_before=dn_bot.FarmState.PRE_DUNGEON,
+        state_after=dn_bot.FarmState.ENTERING_DUNGEON,
+        device_calls=(ReplayDeviceCall("moveTo", (500, 400)), ReplayDeviceCall("click", ())),
+        result=ReplayResult.SUCCESS,
+    )
+    step = ReplayStep(
+        "typed",
+        {"farm_state": "entering_dungeon", "text": None, "coordinate": [500, 400]},
+        {"action": "left_click", "text": None, "coordinate": [500, 400]},
+        expected,
+    )
+    trace = ReplayTrace((step,))
+
+    wire = trace.to_dict()
+    assert wire["version"] == 1
+    assert wire["steps"][0]["expected"] == {
+        "state_before": "pre_dungeon",
+        "state_after": "entering_dungeon",
+        "device_calls": [
+            {"method": "moveTo", "args": [500, 400]},
+            {"method": "click", "args": []},
+        ],
+        "result": "success",
+    }
+    assert ReplayTrace.from_dict(wire).to_dict() == wire
+
+
+def test_replay_rejects_malformed_direct_typed_objects_before_execution():
+    with pytest.raises(ReplayTraceError):
+        ReplayDeviceCall("keyDown", ("Alice",))
+    with pytest.raises(ReplayTraceError):
+        ReplayExpected(
+            state_before=dn_bot.FarmState.PRE_DUNGEON,
+            state_after=dn_bot.FarmState.COMBAT,
+            device_calls=(),
+            result=ReplayResult.DEVICE_FAILURE,
+        )
+    with pytest.raises(ReplayTraceError):
+        ReplayTrace((object(),))
+    valid_step = ReplayStep(
+        "same",
+        {"farm_state": "pre_dungeon", "text": None, "coordinate": None},
+        {"action": "wait", "text": None, "coordinate": None},
+        ReplayExpected(
+            dn_bot.FarmState.PRE_DUNGEON,
+            dn_bot.FarmState.PRE_DUNGEON,
+            (),
+            ReplayResult.SUCCESS,
+        ),
+    )
+    with pytest.raises(ReplayTraceError, match="duplikat"):
+        ReplayTrace((valid_step, valid_step)).to_dict()
+
+
 def test_replay_schema_is_versioned_and_rejects_secret_or_unknown_fields(tmp_path):
     trace = _trace(_step("one", "pre_dungeon", "wait"))
     parsed = ReplayTrace.from_dict(trace)
@@ -175,6 +240,10 @@ def test_replay_schema_is_versioned_and_rejects_secret_or_unknown_fields(tmp_pat
     bad_state = _trace(_step("bad-state", "pre_dungeon", "wait", before="not_a_state"))
     with pytest.raises(ReplayTraceError, match="state farming"):
         ReplayTrace.from_dict(bad_state)
+    bad_claim_state = _trace(_step("bad-claim", "pre_dungeon", "wait"))
+    bad_claim_state["steps"][0]["claim"]["farm_state"] = "not_a_state"
+    with pytest.raises(ReplayTraceError, match="state farming"):
+        ReplayTrace.from_dict(bad_claim_state)
 
     bad_call = _trace(
         {**_step("bad-call", "pre_dungeon", "wait"), "expected": {

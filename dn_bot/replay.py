@@ -13,6 +13,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 from unittest.mock import patch
@@ -38,7 +39,7 @@ _CLAIM_KEYS = {"farm_state", "text", "coordinate"}
 _ACTION_KEYS = {"action", "text", "coordinate", "duration"}
 _EXPECTED_KEYS = {"state_before", "state_after", "device_calls", "result"}
 _CALL_METHODS = {"moveTo", "keyDown", "keyUp", "click", "rightClick"}
-_RESULTS = {"success", "device_failure"}
+_RESULT_VALUES = {"success", "device_failure"}
 _MAX_TRACE_BYTES = 1_000_000
 _MAX_TEXT_LENGTH = 120
 _MAX_FRAME_ID_LENGTH = 80
@@ -65,6 +66,43 @@ class _ReplayDeviceFailure(RuntimeError):
     """Internal marker for an intentionally failed replay action."""
 
 
+class ReplayResult(str, Enum):
+    """Expected result of one replayed action."""
+
+    SUCCESS = "success"
+    DEVICE_FAILURE = "device_failure"
+
+
+@dataclass(frozen=True)
+class ReplayDeviceCall:
+    """One expected primitive call on the in-memory device."""
+
+    method: str
+    args: tuple[Any, ...]
+
+    def __post_init__(self) -> None:
+        _validate_device_call(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _device_call_to_wire(self)
+
+
+@dataclass(frozen=True)
+class ReplayExpected:
+    """Typed expected outcome for one replay step."""
+
+    state_before: FarmState
+    state_after: FarmState
+    device_calls: tuple[ReplayDeviceCall, ...]
+    result: ReplayResult
+
+    def __post_init__(self) -> None:
+        _validate_expected(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _expected_to_wire(self)
+
+
 @dataclass(frozen=True)
 class ReplayStep:
     """One frame claim, proposed action, and expected deterministic outcome."""
@@ -72,14 +110,22 @@ class ReplayStep:
     frame_id: str
     claim: Mapping[str, Any]
     action: Mapping[str, Any]
-    expected: Mapping[str, Any]
+    expected: ReplayExpected
+
+    def __post_init__(self) -> None:
+        # Accept the old mapping form for direct callers, but store only the
+        # validated typed form from this point onward.
+        if isinstance(self.expected, Mapping):
+            object.__setattr__(self, "expected", _parse_expected(self.expected, "direct"))
+        elif not isinstance(self.expected, ReplayExpected):
+            raise ReplayTraceError("ReplayStep expected tidak sesuai schema.")
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "frame_id": self.frame_id,
-            "claim": dict(self.claim),
-            "action": dict(self.action),
-            "expected": dict(self.expected),
+            "frame_id": _frame_id(self.frame_id, "direct"),
+            "claim": _parse_claim(self.claim, "direct"),
+            "action": _parse_action(self.action, "direct"),
+            "expected": self.expected.to_dict(),
         }
 
 
@@ -91,6 +137,21 @@ class ReplayTrace:
     retreat_destination: str | None = None
     version: int = TRACE_VERSION
     profile: str = TRACE_PROFILE
+
+    def __post_init__(self) -> None:
+        if self.version != TRACE_VERSION or self.profile != TRACE_PROFILE:
+            raise ReplayTraceError("Replay object tidak sesuai schema versi 1.")
+        if not isinstance(self.steps, tuple) or not self.steps:
+            raise ReplayTraceError("Replay harus memiliki minimal satu step.")
+        if not all(isinstance(step, ReplayStep) for step in self.steps):
+            raise ReplayTraceError("Replay steps tidak sesuai schema.")
+        frame_ids = [_frame_id(step.frame_id, "direct") for step in self.steps]
+        if len(frame_ids) != len(set(frame_ids)):
+            raise ReplayTraceError("frame_id duplikat dalam replay.")
+        try:
+            validate_retreat_destination(self.retreat_destination)
+        except ValueError:
+            raise ReplayTraceError("Tujuan retreat replay tidak valid.") from None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ReplayTrace":
@@ -126,10 +187,11 @@ class ReplayTrace:
         return cls(tuple(steps), destination)
 
     def to_dict(self) -> dict[str, Any]:
+        destination = validate_retreat_destination(self.retreat_destination)
         return {
             "version": self.version,
             "profile": self.profile,
-            "retreat_destination": self.retreat_destination,
+            "retreat_destination": destination,
             "steps": [step.to_dict() for step in self.steps],
         }
 
@@ -210,7 +272,7 @@ def replay_trace(
 
     for index, step in enumerate(trace.steps):
         expected = step.expected
-        _expect_state(watchdog.state, expected["state_before"], index, "state_before")
+        _expect_state(watchdog.state, expected.state_before, index, "state_before")
         claim = FarmObservationClaim.from_wire(
             step.claim["farm_state"],
             step.claim.get("text"),
@@ -221,8 +283,8 @@ def replay_trace(
         watchdog.ensure_action_allowed(candidate)
         before_calls = len(device.calls)
         try:
-            if expected["result"] == "device_failure":
-                device.fail_after(len(expected["device_calls"]))
+            if expected.result is ReplayResult.DEVICE_FAILURE:
+                device.fail_after(len(expected.device_calls))
             # The action implementation is reused unchanged. Only the two
             # live-only guards are replaced for this in-memory runner: replay
             # has no focused game window and must not wait in real time.
@@ -238,22 +300,24 @@ def replay_trace(
                     device=device,
                 )
         except _ReplayDeviceFailure:
-            if expected["result"] != "device_failure":
+            if expected.result is not ReplayResult.DEVICE_FAILURE:
                 raise ReplayMismatch(f"Step {index}: device gagal tanpa ekspektasi.")
-            if expected["state_after"] != expected["state_before"]:
+            if expected.state_after is not expected.state_before:
                 raise ReplayMismatch(
                     f"Step {index}: device_failure harus mempertahankan state."
                 )
         except ValueError as error:
             raise ReplayTraceError(f"Step {index}: aksi tidak valid: {error}") from None
         else:
-            if expected["result"] == "device_failure":
+            if expected.result is ReplayResult.DEVICE_FAILURE:
                 raise ReplayMismatch(f"Step {index}: device_failure tidak terjadi.")
             watchdog.advance(candidate, action_name)
 
-        _expect_state(watchdog.state, expected["state_after"], index, "state_after")
+        _expect_state(watchdog.state, expected.state_after, index, "state_after")
         actual_calls = device.calls[before_calls:]
-        expected_calls = _calls_from_wire(expected["device_calls"])
+        expected_calls = tuple(
+            (call.method, call.args) for call in expected.device_calls
+        )
         if tuple(actual_calls) != expected_calls:
             raise ReplayMismatch(
                 f"Step {index}: device_calls berbeda; expected {expected_calls!r}, "
@@ -286,7 +350,7 @@ def _parse_claim(value: Any, index: int) -> dict[str, Any]:
     result = {key: value[key] for key in value}
     _validate_optional_text(result, "text", f"step {index} claim")
     _validate_optional_coordinate(result, "coordinate", f"step {index} claim")
-    _safe_text(result["farm_state"], f"step {index} farm_state", 40)
+    _validate_state_value(result["farm_state"], f"step {index} farm_state")
     _validate_policy_text(result.get("text"), f"step {index} claim text")
     return result
 
@@ -312,62 +376,113 @@ def _parse_action(value: Any, index: int) -> dict[str, Any]:
     return result
 
 
-def _parse_expected(value: Any, index: int) -> dict[str, Any]:
+def _parse_expected(value: Any, index: int | str) -> ReplayExpected:
     if not isinstance(value, Mapping):
         raise ReplayTraceError(f"Step {index} expected harus berupa object JSON.")
     _require_exact_keys(value, _EXPECTED_KEYS, f"step {index} expected")
-    result = {key: value[key] for key in value}
-    _validate_state_value(result["state_before"], f"step {index} state_before")
-    _validate_state_value(result["state_after"], f"step {index} state_after")
-    if result["result"] not in _RESULTS:
+    state_before = _validate_state_value(value["state_before"], f"step {index} state_before")
+    state_after = _validate_state_value(value["state_after"], f"step {index} state_after")
+    result = value["result"]
+    if not isinstance(result, str) or result not in _RESULT_VALUES:
         raise ReplayTraceError(f"Step {index} result tidak dikenal.")
-    if not isinstance(result["device_calls"], list):
-        raise ReplayTraceError(f"Step {index} device_calls harus berupa list.")
-    _calls_from_wire(result["device_calls"])
-    if result["result"] == "device_failure" and result["state_after"] != result["state_before"]:
+    device_calls = _parse_device_calls(value["device_calls"], index)
+    if result == ReplayResult.DEVICE_FAILURE.value and state_after is not state_before:
         raise ReplayTraceError(f"Step {index} device_failure harus mempertahankan state.")
-    return result
+    return ReplayExpected(
+        state_before=state_before,
+        state_after=state_after,
+        device_calls=device_calls,
+        result=ReplayResult(result),
+    )
 
 
-def _calls_from_wire(value: list[Any]) -> tuple[tuple[str, tuple[Any, ...]], ...]:
-    calls: list[tuple[str, tuple[Any, ...]]] = []
+def _parse_device_calls(value: Any, index: int | str) -> tuple[ReplayDeviceCall, ...]:
+    if not isinstance(value, list):
+        raise ReplayTraceError(f"Step {index} device_calls harus berupa list.")
     if len(value) > 8:
         raise ReplayTraceError("device_calls terlalu banyak.")
+    calls: list[ReplayDeviceCall] = []
     for call in value:
         if not isinstance(call, Mapping) or set(call) != {"method", "args"}:
             raise ReplayTraceError("device_call harus memiliki method dan args.")
-        method = call["method"]
         args = call["args"]
-        if method not in _CALL_METHODS or not isinstance(args, list):
+        if not isinstance(args, list):
             raise ReplayTraceError("device_call tidak valid.")
-        if method in {"moveTo"}:
-            valid_args = len(args) == 2 and all(
-                isinstance(argument, int) and not isinstance(argument, bool)
-                for argument in args
-            )
-        elif method in {"keyDown", "keyUp"}:
-            valid_args = (
-                len(args) == 1
-                and isinstance(args[0], str)
-                and args[0].casefold() in ACTION_KEYS | MOVE_KEYS
-            )
-        else:
-            valid_args = len(args) == 0
-        if not valid_args:
-            raise ReplayTraceError("device_call args tidak sesuai method.")
-        calls.append((method, tuple(args)))
+        typed_call = ReplayDeviceCall(call["method"], tuple(args))
+        _validate_device_call(typed_call)
+        calls.append(typed_call)
     return tuple(calls)
 
 
-def _validate_state_value(value: Any, field: str) -> None:
+def _validate_device_call(call: ReplayDeviceCall) -> None:
+    if not isinstance(call.method, str) or not isinstance(call.args, tuple):
+        raise ReplayTraceError("device_call tidak sesuai schema.")
+    if call.method not in _CALL_METHODS:
+        raise ReplayTraceError("device_call tidak valid.")
+    args = call.args
+    if call.method == "moveTo":
+        valid_args = len(args) == 2 and all(
+            isinstance(argument, int) and not isinstance(argument, bool)
+            for argument in args
+        )
+    elif call.method in {"keyDown", "keyUp"}:
+        valid_args = (
+            len(args) == 1
+            and isinstance(args[0], str)
+            and args[0].casefold() in ACTION_KEYS | MOVE_KEYS
+        )
+    else:
+        valid_args = len(args) == 0
+    if not valid_args:
+        raise ReplayTraceError("device_call args tidak sesuai method.")
+
+
+def _device_call_to_wire(call: ReplayDeviceCall) -> dict[str, Any]:
+    if not isinstance(call, ReplayDeviceCall):
+        raise ReplayTraceError("device_call tidak sesuai schema.")
+    _validate_device_call(call)
+    return {"method": call.method, "args": list(call.args)}
+
+
+def _validate_expected(expected: ReplayExpected) -> None:
+    if not isinstance(expected.state_before, FarmState) or not isinstance(
+        expected.state_after, FarmState
+    ):
+        raise ReplayTraceError("expected state tidak sesuai schema.")
+    if (
+        not isinstance(expected.device_calls, tuple)
+        or len(expected.device_calls) > 8
+        or not all(isinstance(call, ReplayDeviceCall) for call in expected.device_calls)
+    ):
+        raise ReplayTraceError("expected device_calls tidak sesuai schema.")
+    if not isinstance(expected.result, ReplayResult):
+        raise ReplayTraceError("expected result tidak sesuai schema.")
+    if expected.result is ReplayResult.DEVICE_FAILURE and expected.state_after is not expected.state_before:
+        raise ReplayTraceError("Step device_failure harus mempertahankan state.")
+
+
+def _expected_to_wire(expected: ReplayExpected) -> dict[str, Any]:
+    if not isinstance(expected, ReplayExpected):
+        raise ReplayTraceError("expected tidak sesuai schema.")
+    _validate_expected(expected)
+    return {
+        "state_before": expected.state_before.value,
+        "state_after": expected.state_after.value,
+        "device_calls": [_device_call_to_wire(call) for call in expected.device_calls],
+        "result": expected.result.value,
+    }
+
+
+def _validate_state_value(value: Any, field: str) -> FarmState:
     if not isinstance(value, str) or value not in {state.value for state in FarmState}:
         raise ReplayTraceError(f"{field} harus berupa state farming yang dikenal.")
+    return FarmState(value)
 
 
-def _expect_state(actual: FarmState, expected: Any, index: int, field: str) -> None:
-    if expected != actual.value:
+def _expect_state(actual: FarmState, expected: FarmState, index: int, field: str) -> None:
+    if actual is not expected:
         raise ReplayMismatch(
-            f"Step {index}: {field} expected {expected!r}, got {actual.value!r}."
+            f"Step {index}: {field} expected {expected.value!r}, got {actual.value!r}."
         )
 
 

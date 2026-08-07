@@ -203,7 +203,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
-│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / --retreat-destination / --record-trace / DN_INSTRUCTION / --dry-run)
+│   ├── __main__.py    # Entrypoint CLI (argparse; replay subcommand / --instruction / --retreat-destination / --record-trace / DN_INSTRUCTION / --dry-run)
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat

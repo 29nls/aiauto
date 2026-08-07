@@ -39,6 +39,176 @@ def _fake_client(create):
     )
 
 
+@pytest.mark.parametrize(
+    "provider,expected_url",
+    [
+        ("openai", "https://api.openai.com/v1/"),
+        ("google", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+        ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+        ("openrouter", "https://openrouter.ai/api/v1/"),
+        ("groq", "https://api.groq.com/openai/v1/"),
+    ],
+    ids=["openai", "google", "gemini-alias", "openrouter", "groq"],
+)
+def test_provider_profiles_resolve_to_vetted_urls(provider, expected_url):
+    with patch.dict(os.environ, {"DN_PROVIDER": provider}, clear=True):
+        assert dn_bot.resolve_provider() in {"openai", "google", "openrouter", "groq"}
+        assert dn_bot.resolve_base_url() == expected_url
+
+
+def test_google_provider_accepts_ai_studio_key_shape():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_PROVIDER": "google",
+            "OPENAI_API_KEY": "AQ.example-provider-key-1234567890",
+            "OPENAI_MODEL": "gemini-2.5-flash",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+        },
+        clear=True,
+    ), patch.object(dn_bot.config.os, "name", "nt"):
+        dn_bot.preflight_configuration()
+
+
+def test_custom_provider_requires_https_endpoint():
+    with patch.dict(
+        os.environ,
+        {"DN_PROVIDER": "custom", "OPENAI_API_KEY": "custom-key-123"},
+        clear=True,
+    ):
+        with pytest.raises(ValueError, match="DN_BASE_URL"):
+            dn_bot.resolve_base_url()
+
+
+def test_legacy_gemini_base_url_is_inferred_when_provider_is_unset():
+    with patch.dict(
+        os.environ,
+        {"OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+        clear=True,
+    ):
+        assert dn_bot.resolve_provider() == "google"
+        assert dn_bot.resolve_base_url() == "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+
+def test_explicit_provider_wins_over_legacy_base_url():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_PROVIDER": "openai",
+            "OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        },
+        clear=True,
+    ):
+        with pytest.raises(ValueError, match="tidak cocok"):
+            dn_bot.resolve_base_url()
+
+
+def test_new_base_url_wins_over_legacy_base_url():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_PROVIDER": "custom",
+            "DN_BASE_URL": "https://new.example/v1",
+            "OPENAI_BASE_URL": "https://old.example/v1",
+        },
+        clear=True,
+    ):
+        assert dn_bot.resolve_base_url() == "https://new.example/v1/"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://[bad", "https://example.invalid:not-a-port/v1"],
+    ids=["malformed-host", "malformed-port"],
+)
+def test_malformed_legacy_url_fails_as_configuration_error(url):
+    with patch.dict(os.environ, {"OPENAI_BASE_URL": url}, clear=True):
+        with pytest.raises(ValueError, match="URL endpoint"):
+            dn_bot.resolve_base_url()
+
+
+def test_custom_localhost_http_is_allowed_only_for_custom_provider():
+    with patch.dict(
+        os.environ,
+        {"DN_PROVIDER": "custom", "DN_BASE_URL": "http://127.0.0.1:8000/v1"},
+        clear=True,
+    ):
+        assert dn_bot.resolve_base_url() == "http://127.0.0.1:8000/v1/"
+
+
+def test_custom_remote_http_is_rejected_even_with_valid_path():
+    with patch.dict(
+        os.environ,
+        {"DN_PROVIDER": "custom", "DN_BASE_URL": "http://example.test/v1"},
+        clear=True,
+    ):
+        with pytest.raises(ValueError, match="HTTPS"):
+            dn_bot.resolve_base_url()
+
+
+def test_custom_provider_rejects_url_credentials():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_PROVIDER": "custom",
+            "DN_BASE_URL": "https://user:pass@example.invalid/v1",
+            "OPENAI_API_KEY": "custom-key-123",
+        },
+        clear=True,
+    ):
+        with pytest.raises(ValueError, match="kredensial"):
+            dn_bot.resolve_base_url()
+
+
+def test_openrouter_public_constant_remains_legacy_compatible():
+    assert dn_bot.OPENROUTER_BASE_URL == dn_bot.OPENAI_BASE_URL
+
+
+def test_openrouter_provider_uses_profile_endpoint_without_leaking_key():
+    with patch.dict(
+        os.environ,
+        {
+            "DN_PROVIDER": "openrouter",
+            "OPENAI_API_KEY": "sk-or-v1-aaaaaaaaaaaaaaaaaaaa",
+        },
+        clear=True,
+    ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
+        dn_bot.get_openai_client()
+
+    assert mock_openai.call_args.kwargs["base_url"] == "https://openrouter.ai/api/v1/"
+    assert mock_openai.call_args.kwargs["api_key"] == "sk-or-v1-aaaaaaaaaaaaaaaaaaaa"
+
+
+def test_google_legacy_client_uses_legacy_endpoint():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "OPENAI_API_KEY": "AQ.example-provider-key-1234567890",
+        },
+        clear=True,
+    ), patch.object(dn_bot.api, "OpenAI") as mock_openai:
+        dn_bot.get_openai_client()
+    assert mock_openai.call_args.kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+
+def test_provider_client_matrix_uses_selected_endpoint():
+    cases = [
+        ("google", "AQ.example-provider-key-1234567890", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+        ("groq", "gsk_aaaaaaaaaaaaaaaaaaaa", "https://api.groq.com/openai/v1/"),
+        ("custom", "custom-key-123", "https://example.invalid/v1/"),
+    ]
+    for provider, key, expected_url in cases:
+        env = {
+            "DN_PROVIDER": provider,
+            "OPENAI_API_KEY": key,
+        }
+        if provider == "custom":
+            env["DN_BASE_URL"] = "https://example.invalid/v1"
+        with patch.dict(os.environ, env, clear=True), patch.object(dn_bot.api, "OpenAI") as mock_openai:
+            dn_bot.get_openai_client()
+        assert mock_openai.call_args.kwargs["base_url"] == expected_url
+
 
 
 def test_openai_client_passes_api_key_and_timeout():
@@ -1398,7 +1568,7 @@ def test_main_plumbs_retreat_destination_from_env():
 
 
 def test_main_plumbs_cli_instruction_to_run_dn_bot():
-    with patch.object(
+    with patch.dict(os.environ, {}, clear=True), patch.object(
         dn_bot.__main__, "preflight_configuration"
     ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
         dn_bot.__main__, "run_dn_bot"
@@ -1562,7 +1732,7 @@ def test_call_openai_logs_request_latency():
         dn_bot._call_openai(_fake_client(create), "test/free", [])
 
     assert any(
-        isinstance(args[0], str) and "OpenAI request selesai" in args[0]
+        isinstance(args[0], str) and "Provider request selesai" in args[0]
         for args in calls
     )
 

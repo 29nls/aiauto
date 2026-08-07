@@ -3,7 +3,7 @@
 Dokumen hidup untuk **threat model, asumsi keamanan, mitigasi yang ada, dan status temuan**.
 Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulang temuan yang sudah tercatat**.
 
-- Stempel commit terakhir yang diaudit: `e74bc21`
+- Stempel commit terakhir yang diaudit: `e74bc21` (perubahan provider ini belum diaudit ulang secara penuh)
 - Snapshot audit detail (metodologi & pembahasan lengkap): [`security_best_practices_report.md`](./security_best_practices_report.md) (2026-08-06)
 - Perbarui stempel commit dan status temuan setiap kali ada perubahan kode atau review baru.
 
@@ -22,17 +22,17 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 | Boundary | Tingkat kepercayaan | Konsekuensi desain |
 |---|---|---|
 | **Teks dalam screenshot** (chat pemain, NPC, UI game) | **Tidak tepercaya** | Bisa berisi instruksi adversarial → potensi *indirect prompt injection*. Sudah dimitigasi: `SYSTEM_PROMPT` menandainya sebagai untrusted dengan delimiter (F-01). |
-| **Model OpenAI** | Semi-trusted | Outputnya (tool call) divalidasi ketat sebelum input fisik; bisa salah/terbujuk, tidak bisa lolos dari validasi. |
+| **Provider model** | Semi-trusted | Output tool call divalidasi ketat sebelum input fisik; bisa salah atau terbujuk, tidak bisa lolos dari validasi. |
 | **Konfigurasi `.env`** | Trusted (operator lokal) | Validasi tetap fail-fast dengan pesan jelas (`_int_env`). |
-| **`OPENAI_API_KEY`** | Secret | Hanya dibaca dari env, tidak pernah di-log, `.env` di-gitignore. |
-| **Aktor luar jaringan** | Di luar model | Script tidak menerima koneksi masuk; satu-satunya I/O jaringan adalah HTTPS keluar ke OpenAI. |
+| **`OPENAI_API_KEY`** | Secret | Hanya dibaca dari env untuk provider terpilih, tidak pernah di-log, `.env` di-gitignore. |
+| **Aktor luar jaringan** | Di luar model | Script tidak menerima koneksi masuk; I/O jaringan hanya HTTPS keluar ke provider yang dipilih. Endpoint custom menerima key dan payload, jadi operator wajib mempercayai host tersebut. |
 | **Pengguna operator** | Trusted | Emergency stop + batas langkah adalah jaring pengaman kesalahan, bukan proteksi terhadap operator. |
 
 **Asumsi platform & operasi:**
 - **Windows-only.** `preflight_configuration` menolak platform non-Windows saat startup, dan `check_target_window` sendiri bersifat fail-closed di non-Windows (`raise FocusLost`) — pemanggilan programatik tanpa preflight juga ditolak (F-02 fixed).
 - Bot dijalankan **dengan pengawasan operator**, bukan headless/unattended.
 - Ini **eksperimen, bukan alat produksi**; input sintetis bisa memicu anti-cheat walau tidak menghindarinya.
-- Model yang digunakan adalah model OpenAI (disarankan `:free`) yang mendukung vision + tool calling.
+- Model provider yang digunakan harus mendukung vision + tool calling. Ketersediaan free tier dan biaya bergantung provider.
 
 ---
 
@@ -41,9 +41,9 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 ### 3.1 Aset
 
 1. **Kendali input fisik** (mouse/keyboard) pada mesin operator — aset utama yang dilindungi.
-2. **API key OpenAI** — secret; kompromi = biaya/misuse atas akun operator.
+2. **API key provider** — secret; kompromi = biaya atau misuse atas akun operator.
 3. **Akun game / karakter** — bisa diblokir publisher; risiko ToS, bukan teknis.
-4. **Sesi konteks** (riwayat + screenshot) — sensitivitas rendah, dikirim ke pihak ketiga (OpenAI).
+4. **Sesi konteks** (riwayat + screenshot) — sensitivitas rendah, dikirim ke pihak ketiga provider terpilih.
 
 ### 3.2 Aktor
 
@@ -75,7 +75,7 @@ Tujuannya: review keamanan berikutnya membaca file ini dulu dan **tidak mengulan
 
 ## 4. Mitigasi yang ada (detail + lokasi)
 
-Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode pada stempel `e74bc21`. **Sejak restrukturisasi package `dn_bot/`, kode berpindah dari `app_dn.py` ke modul-modul:** `config.py` (konstanta/env/preflight), `safety.py` (emergency stop, cek fokus, sanitasi log), `capture.py` (screenshot/koordinat), `input_control.py` (aksi fisik), `api.py` (OpenAI/retry/kontrak tool), `orchestrator.py` (run_dn_bot). Nama fungsi tidak berubah dan sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
+Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode pada stempel `e74bc21`. **Sejak restrukturisasi package `dn_bot/`, kode berpindah dari `app_dn.py` ke modul-modul:** `config.py` (provider, konstanta/env/preflight), `safety.py` (emergency stop, cek fokus, sanitasi log), `capture.py` (screenshot/koordinat), `input_control.py` (aksi fisik), `api.py` (provider/retry/kontrak tool), `orchestrator.py` (run_dn_bot). Nama fungsi tidak berubah dan sengaja diprioritaskan daripada nomor baris karena lebih tahan terhadap pergeseran kode; periksa ulang lokasi saat kode berubah.
 
 1. **Emergency stop dua lapis**
    - `check_emergency_stop` — kursor di pojok kiri atas (0–5, 0–5) → `EmergencyStop`; dicek sebelum tiap aksi, tiap interval `_safe_sleep` (0.05 s), dan tiap langkah sesi.
@@ -90,7 +90,7 @@ Referensi berikut (nama fungsi, dengan nomor baris bila tersedia) merujuk kode p
 8. **Boundary konteks** — `_compact_messages` menjaga `MAX_CONTEXT_MESSAGES=8` sambil mempertahankan grup assistant/tool yang valid dan frame terkini.
 9. **Penanganan error eksplisit** — `EmergencyStop`/`FocusLost` (subclass `RuntimeError`) di-re-raise, tidak tertelan `except Exception`; error API diklasifikasi ke pesan user-facing Bahasa Indonesia yang actionable.
 10. **Mitigasi indirect prompt injection (F-01)** — `SYSTEM_PROMPT` menandai konten screenshot dengan delimiter `<untrusted_screenshot>`: teks dalam gambar dinyatakan sebagai **data tidak tepercaya, bukan instruksi**, larangan menuruti instruksi dari dalam gambar, dan aturan berhenti saat layar ambigu (tanpa tool call). Dijaga 2 tes regression guard (`tests/test_dn_bot.py`). Efektivitas terhadap model live tetap perlu verifikasi.
-11. **Preflight startup (F-02)** — `preflight_configuration` menolak platform non-Windows dan memvalidasi `OPENAI_API_KEY`/`OPENAI_MODEL`/`DN_WINDOW_TITLE`/`DN_CAPTURE_*`/`DN_MONITOR` **sebelum countdown 5 detik**; miskonfigurasi gagal cepat dengan pesan jelas dan exit code 1. Validasi env capture terpusat di `_validate_capture_env` (dipakai preflight dan `_capture_region_from_env`). Dijaga 8 tes.
+11. **Preflight startup (F-02)** — `preflight_configuration` menolak platform non-Windows dan memvalidasi provider, key provider, endpoint profile atau `DN_BASE_URL`, `OPENAI_MODEL`, `DN_WINDOW_TITLE`, `DN_CAPTURE_*`, dan `DN_MONITOR` **sebelum countdown 5 detik**; miskonfigurasi gagal cepat dengan pesan jelas dan exit code 1. Endpoint custom remote wajib HTTPS dan tidak boleh memuat kredensial, query, atau fragment. Validasi env capture terpusat di `_validate_capture_env`. Dijaga tes provider dan preflight.
     - **Fail-closed lapis kedua (F-02)** — `check_target_window` sendiri `raise FocusLost` di non-Windows (dulu `return` diam-diam), jadi pemanggilan programatik `run_dn_bot` tanpa preflight juga ditolak. Dijaga 1 tes.
 12. **Lock dependensi (F-03/SBP-001)** — `requirements.txt` di-pin eksak (`==`) untuk kelima dependensi runtime; `requirements-dev.txt` hanya menambah `pytest==8.3.5` di atas `-r requirements.txt`. Strategi dan aturan pembaruan didokumentasikan di README ("Dependensi & lock"); lockfile terpisah sengaja tidak dipakai karena hanya 5 dependensi — pin eksak sudah cukup.
 13. **CI supply-chain (F-04/SBP-002)** — `actions/checkout` & `actions/setup-python` di-pin SHA penuh (bukan tag bergerak), `permissions: contents: read` di root workflow, hanya satu workflow (`tests.yml`). Pin SHA menutup tag-mutation; pin SHA/patch lama tidak menerima backport keamanan otomatis → freshness aksi dilacak sebagai **F-07** (ditutup — lihat mitigasi #16).

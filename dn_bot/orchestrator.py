@@ -198,7 +198,7 @@ def run_dn_bot(
             # so verbose SDK details never reach this log (F-06); the message
             # carries the actionable classification plus a bounded detail.
             log.exception(
-                "OpenAI API gagal; sesi dihentikan tanpa aksi tambahan: %s",
+                "Provider API gagal; sesi dihentikan tanpa aksi tambahan: %s",
                 error,
             )
             log.info(

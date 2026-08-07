@@ -30,11 +30,37 @@ MAX_CONTEXT_MESSAGES = 8
 ACTION_COOLDOWN = 0.15
 MOVE_DURATION = 0.3
 START_DELAY_SECONDS = 5
-# Official OpenAI endpoint. The client uses the SDK default directly; the
-# constant remains useful to callers that need to display the selected service.
-OPENAI_BASE_URL = "https://api.openai.com/v1"
-# Deprecated compatibility name. It no longer selects or enables OpenRouter.
+# Provider selection is explicit through DN_PROVIDER. All listed endpoints use
+# the OpenAI SDK wire contract; model capability and quota remain provider-owned.
+DEFAULT_PROVIDER = "openai"
+PROVIDER_ENV = "DN_PROVIDER"
+BASE_URL_ENV = "DN_BASE_URL"
+LEGACY_BASE_URL_ENV = "OPENAI_BASE_URL"
+PROVIDER_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "groq": "https://api.groq.com/openai/v1",
+}
+PROVIDER_ALIASES = {"gemini": "google", "google_ai_studio": "google", "google-ai-studio": "google"}
+# Deprecated compatibility name. It remains the official OpenAI endpoint.
+OPENAI_BASE_URL = PROVIDER_BASE_URLS["openai"]
+# Historical public alias retained for compatibility with the immediately prior
+# OpenAI migration. Use PROVIDER_BASE_URLS["openrouter"] for the real endpoint.
 OPENROUTER_BASE_URL = OPENAI_BASE_URL
+
+# ``DN_BASE_URL`` is allowed to override a profile only for an HTTPS endpoint,
+# or for localhost custom development servers. This prevents accidental use of
+# an unrelated or plaintext remote endpoint while retaining local flexibility.
+_ALLOWED_PROVIDER_HOSTS = {
+    "openai": "api.openai.com",
+    "google": "generativelanguage.googleapis.com",
+    "openrouter": "openrouter.ai",
+    "groq": "api.groq.com",
+}
+OPENAI_KEY_MIN_LENGTH = 40
+PROVIDER_KEY_MIN_LENGTH = 8
+OPENAI_KEY_PREFIX = "sk-"
 API_MAX_ATTEMPTS = 3
 API_RETRY_BASE_DELAY = 1.5
 API_ERROR_DETAIL_MAX = 500
@@ -50,11 +76,8 @@ DEFAULT_INSTRUCTION = (
     "didekati, dekati secara perlahan lalu gunakan F untuk interaksi. "
     "Jika tujuan tidak jelas, jangan melakukan aksi."
 )
-# Cheap shape guard for the OpenAI key in preflight. Deliberately conservative:
-# it catches clearly invalid values, while authentication remains the provider's
-# responsibility.
-OPENAI_KEY_PREFIX = "sk-"
-OPENAI_KEY_MIN_LENGTH = 40
+# Provider key checks are deliberately shape based. Authentication and exact
+# model capability remain the selected provider's responsibility.
 # Optional Minotaur retreat destination. None preserves the legacy behavior
 # (both visible labels accepted); an explicit value makes the destination strict.
 RETREAT_DESTINATION_ENV = "DN_RETREAT_DESTINATION"
@@ -119,17 +142,104 @@ def _int_env(name: str, default: Optional[str] = None) -> Optional[int]:
         ) from None
 
 
-def _is_plausible_openai_key(value: str) -> bool:
-    """Cheap shape check for an OpenAI project or user key.
+def resolve_provider(value: str | None = None) -> str:
+    """Resolve and validate the configured provider name.
 
-    Authentication remains the provider's responsibility. This only catches
-    clearly invalid values so preflight can fail before the countdown.
+    A legacy ``OPENAI_BASE_URL`` pointing at one of the known profiles is
+    inferred only when ``DN_PROVIDER`` is absent. This keeps older Gemini
+    configuration usable while making explicit ``DN_PROVIDER`` authoritative.
     """
+    if value is None and PROVIDER_ENV not in os.environ:
+        override = _base_url_override()
+        if override:
+            from urllib.parse import urlparse
+
+            try:
+                host = urlparse(override.strip()).hostname
+            except ValueError:
+                host = None
+            for provider, expected_host in _ALLOWED_PROVIDER_HOSTS.items():
+                if host == expected_host:
+                    return provider
+            return "custom"
+    raw = os.getenv(PROVIDER_ENV, DEFAULT_PROVIDER) if value is None else value
+    normalized = str(raw).strip().casefold()
+    normalized = PROVIDER_ALIASES.get(normalized, normalized)
+    if normalized not in (*PROVIDER_BASE_URLS, "custom"):
+        choices = ", ".join((*PROVIDER_BASE_URLS, "custom"))
+        raise ValueError(f"{PROVIDER_ENV} harus berupa salah satu: {choices}.")
+    return normalized
+
+
+def _base_url_override() -> str | None:
+    """Read the new override, then the legacy variable for compatibility."""
+    return os.getenv(BASE_URL_ENV) or os.getenv(LEGACY_BASE_URL_ENV) or None
+
+
+def resolve_base_url(provider: str | None = None) -> str:
+    """Resolve a provider endpoint and reject unsafe or mismatched overrides."""
+    selected = resolve_provider(provider)
+    override = _base_url_override()
+    if override:
+        url = override.strip().rstrip("/")
+    else:
+        url = PROVIDER_BASE_URLS.get(selected, "").rstrip("/")
+    if not url:
+        raise ValueError(
+            f"{BASE_URL_ENV} wajib diisi saat {PROVIDER_ENV}=custom."
+        )
+
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        # Accessing ``port`` makes urlparse validate malformed port values.
+        # Without this, ``https://host:not-a-port`` can pass shape checks and
+        # fail later inside the SDK instead of during preflight.
+        parsed.port
+    except ValueError:
+        raise ValueError(f"{BASE_URL_ENV} harus berupa URL endpoint yang valid.") from None
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError(f"{BASE_URL_ENV} tidak boleh memuat kredensial, query, atau fragment.")
+    if parsed.scheme != "https":
+        local_host = hostname in {"localhost", "127.0.0.1", "::1"}
+        if not (selected == "custom" and parsed.scheme == "http" and local_host):
+            raise ValueError(f"{BASE_URL_ENV} harus memakai HTTPS; HTTP hanya diizinkan untuk localhost custom.")
+    expected_host = _ALLOWED_PROVIDER_HOSTS.get(selected)
+    if selected != "custom" and expected_host and hostname != expected_host:
+        raise ValueError(
+            f"{BASE_URL_ENV} tidak cocok dengan provider {selected}; gunakan endpoint profil bawaan atau custom."
+        )
+    if not parsed.netloc or not hostname:
+        raise ValueError(f"{BASE_URL_ENV} harus berupa URL endpoint yang valid.")
+    return url + "/"
+
+
+def _is_plausible_openai_key(value: str) -> bool:
+    """Keep the legacy OpenAI shape helper for callers and old tests."""
     return (
         value.startswith(OPENAI_KEY_PREFIX)
         and not value.startswith("sk-or-v1-")
         and len(value) >= OPENAI_KEY_MIN_LENGTH
     )
+
+
+def _is_plausible_provider_key(provider: str, value: str) -> bool:
+    """Reject obvious provider mismatches without pretending to authenticate."""
+    if not value or len(value) < PROVIDER_KEY_MIN_LENGTH:
+        return False
+    if "your-key-here" in value.casefold() or "isi-api-key" in value.casefold():
+        return False
+    if provider == "openai":
+        return _is_plausible_openai_key(value)
+    if provider == "google":
+        return (value.startswith("AIza") or value.startswith("AQ.")) and len(value) >= 20
+    if provider == "groq":
+        return value.startswith("gsk_") and len(value) >= 20
+    if provider == "openrouter":
+        return value.startswith(("sk-or-v1-", "or-")) and len(value) >= 20
+    return True
 
 
 def validate_retreat_destination(value: object | None) -> str | None:
@@ -228,22 +338,26 @@ def preflight_configuration(retreat_destination: object = _UNSET) -> None:
             "Script ini hanya mendukung Windows: cek fokus jendela dan input "
             "fisik bergantung pada API Windows. Jalankan pada Windows 10/11."
         )
+    provider = resolve_provider()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY belum diatur. Copy .env.example menjadi .env "
-            "dan isi API key secara lokal."
+            "OPENAI_API_KEY belum diatur. Isi API key provider yang dipilih di .env."
         )
-    if not _is_plausible_openai_key(api_key):
+    if not _is_plausible_provider_key(provider, api_key):
+        if provider == "openai":
+            detail = "OPENAI_API_KEY tampak tidak valid: harus diawali 'sk-' dengan panjang minimal yang wajar. Periksa key OpenAI di .env."
+            if "your-key-here" in api_key.casefold():
+                detail = "OPENAI_API_KEY placeholder tidak valid. Isi key OpenAI asli di .env."
+            raise RuntimeError(detail)
         raise RuntimeError(
-            "OPENAI_API_KEY tampak tidak valid: harus diawali 'sk-' "
-            "dengan panjang minimal yang wajar. Isi API key OpenAI asli di "
-            ".env — jangan memakai placeholder dari .env.example."
+            f"OPENAI_API_KEY tampak tidak cocok dengan provider {provider}. "
+            "Periksa key dan DN_PROVIDER di .env."
         )
+    resolve_base_url(provider)
     if not os.getenv("OPENAI_MODEL", "").strip():
         raise RuntimeError(
-            "OPENAI_MODEL belum diatur. Pilih model OpenAI yang "
-            "mendukung vision dan tool calling."
+            "OPENAI_MODEL belum diatur. Pilih model yang mendukung vision dan tool calling untuk provider terpilih."
         )
     if not os.getenv("DN_WINDOW_TITLE", "").strip():
         raise RuntimeError(

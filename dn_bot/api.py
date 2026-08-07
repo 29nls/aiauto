@@ -1,4 +1,4 @@
-"""OpenAI client, error classification, and the model tool contract."""
+"""Compatible model client, error classification, and tool contract."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from .config import (
     FocusLost,
     _request_timeout,
     log,
+    resolve_base_url,
+    resolve_provider,
 )
 from .farm import farm_action_values, farm_state_values
 from .messages import ModelReply, ToolRequest
@@ -121,24 +123,28 @@ Aturan aksi:
 
 
 def get_openai_client() -> OpenAI:
-    """Create a client for the official OpenAI API.
+    """Create the OpenAI SDK client for the selected compatible provider.
 
-    The client carries a bounded request timeout (``OPENAI_TIMEOUT``,
-    default 60 s) so a hung request aborts instead of holding the session for
-    the SDK default; a timeout surfaces as an ``APITimeoutError`` which the
-    error taxonomy classifies as a retryable network-kind failure.
+    ``DN_PROVIDER`` selects a built in endpoint profile. ``DN_BASE_URL`` may
+    select a vetted custom endpoint. The wire contract remains the same, so
+    replay, recorder, FarmWatchdog, and the action controller do not depend on
+    the provider choice.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY belum diatur. Copy .env.example menjadi .env "
-            "dan isi API key secara lokal."
+            "OPENAI_API_KEY belum diatur. Isi API key provider yang dipilih di .env."
         )
-
-    return OpenAI(
-        api_key=api_key,
-        timeout=_request_timeout(),
-    )
+    provider = resolve_provider()
+    client_kwargs = {
+        "api_key": api_key,
+        "timeout": _request_timeout(),
+    }
+    # Preserve the historical official OpenAI constructor shape when no
+    # provider override is configured. Other profiles need their endpoint.
+    if provider != "openai" or os.getenv("DN_BASE_URL") or os.getenv("OPENAI_BASE_URL"):
+        client_kwargs["base_url"] = resolve_base_url(provider)
+    return OpenAI(**client_kwargs)
 
 
 # Failure kinds that are worth retrying. Configuration errors (auth, model,
@@ -146,17 +152,17 @@ def get_openai_client() -> OpenAI:
 _RETRYABLE_API_KINDS = {"rate_limit", "server", "network"}
 
 API_ERROR_MESSAGES = {
-    "auth": "OPENAI_API_KEY tidak valid atau kedaluwarsa (401/403); periksa .env.",
+    "auth": "OPENAI_API_KEY provider tidak valid atau kedaluwarsa (401/403); periksa .env.",
     "not_found": "Model tidak ditemukan (404); periksa OPENAI_MODEL.",
     "invalid_request": (
         "Permintaan ditolak (400/422); pastikan model mendukung vision dan tool "
         "calling. Jika konteks penuh, mulai sesi baru."
     ),
-    "rate_limit": "Batas kecepatan OpenAI (429); coba lagi nanti.",
-    "server": "OpenAI melaporkan gangguan server (5xx); coba lagi nanti.",
-    "network": "Koneksi jaringan gagal; periksa koneksi internet.",
-    "http": "OpenAI mengembalikan error HTTP yang tidak dikenal.",
-    "unknown": "Kesalahan OpenAI yang tidak dikenal.",
+    "rate_limit": "Batas kecepatan provider (429); coba lagi nanti.",
+    "server": "Provider melaporkan gangguan server (5xx); coba lagi nanti.",
+    "network": "Koneksi ke provider gagal; periksa koneksi internet.",
+    "http": "Provider mengembalikan error HTTP yang tidak dikenal.",
+    "unknown": "Kesalahan provider yang tidak dikenal.",
 }
 
 
@@ -205,7 +211,7 @@ def _call_openai(
     system_prompt: str = SYSTEM_PROMPT,
     tools: list[dict[str, Any]] | None = None,
 ) -> ModelReply:
-    """Call OpenAI with bounded retries, returning a plain ModelReply.
+    """Call the selected compatible model with bounded retries, returning a plain ModelReply.
 
     Retries wrap the request itself, never tool execution or response parsing,
     so a retried or failed call can never repeat a physical action and a
@@ -228,8 +234,9 @@ def _call_openai(
                 tool_choice="auto",
             )
             log.info(
-                "OpenAI request selesai dalam %.2f s (attempt %s/%s)",
+                "Provider request selesai dalam %.2f s (provider=%s, attempt %s/%s)",
                 time.monotonic() - started,
+                resolve_provider(),
                 attempt,
                 API_MAX_ATTEMPTS,
             )
@@ -258,7 +265,7 @@ def _call_openai(
                 ) from None
             delay = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             log.warning(
-                "OpenAI %s (percobaan %s/%s, %.2f s); mencoba lagi dalam %.1f detik.",
+                "Provider %s (percobaan %s/%s, %.2f s); mencoba lagi dalam %.1f detik.",
                 kind,
                 attempt,
                 API_MAX_ATTEMPTS,

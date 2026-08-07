@@ -1,23 +1,47 @@
 # Dragon Nest Vision Input Experiment
 
-Proyek Python untuk eksperimen **vision model melalui OpenAI API + custom tool calling** yang membaca screenshot dan mengirim input terbatas melalui `pydirectinput` pada Windows.
+Proyek Python untuk eksperimen **vision model melalui provider OpenAI compatible + custom tool calling** yang membaca screenshot dan mengirim input terbatas melalui `pydirectinput` pada Windows.
 
 > **Peringatan penting:** Otomasi game online dapat melanggar Terms of Service dan dapat menyebabkan akun atau perangkat diblokir. Jangan gunakan pada akun utama, PvP, ekonomi game, farming otomatis, atau untuk menghindari anti-cheat. Gunakan hanya pada lingkungan dan akun yang memang diizinkan oleh publisher.
+
+## Provider model
+
+`DN_PROVIDER` memilih endpoint OpenAI compatible tanpa mengubah kontrak tool atau alur kontrol. Nilai yang tersedia adalah `openai`, `google`, `openrouter`, `groq`, dan `custom`.
+
+| `DN_PROVIDER` | Endpoint bawaan | Contoh model |
+| --- | --- | --- |
+| `google` | Google AI Studio Gemini | `gemini-2.5-flash`, jika tersedia di project |
+| `openai` | OpenAI | model vision dan tools yang tersedia |
+| `openrouter` | OpenRouter | model vision dan tools yang tersedia |
+| `groq` | Groq | model vision dan tools yang tersedia |
+| `custom` | `DN_BASE_URL` milik operator | model endpoint tersebut |
+
+Provider harus mendukung image input dan function calling dengan format OpenAI compatible. Ketersediaan model, free tier, kuota, dan batas rate bergantung provider dan akun. Endpoint custom harus HTTPS, kecuali HTTP untuk localhost saat pengujian lokal, dan menerima API key ke host yang dipilih operator.
+
+Contoh Google AI Studio:
+
+```dotenv
+DN_PROVIDER=google
+OPENAI_API_KEY=isi-key-Google-AI-Studio-di-lokal
+OPENAI_MODEL=gemini-2.5-flash
+```
+
+Endpoint Google dipilih otomatis. `OPENAI_API_KEY`, `OPENAI_MODEL`, dan `get_openai_client` dipertahankan sebagai nama kompatibilitas. `DN_PROVIDER` memilih profil, `DN_BASE_URL` mengoverride endpoint, dan `OPENAI_BASE_URL` hanya menjadi fallback lama. `OPENROUTER_BASE_URL` tetap diekspor sebagai alias deprecated untuk kompatibilitas. Jangan menulis key di README, source code, trace, atau chat.
 
 ## Target perangkat
 
 - Laptop: ASUS VivoBook X442URR
 - OS: Windows 10/11
 - Python: 3.10 atau lebih baru
-- Koneksi internet untuk OpenAI API
+- Koneksi internet ke provider terpilih
 
 Laptop ini cukup untuk eksperimen capture layar ringan, tetapi respons AI cloud memiliki latensi sehingga tidak cocok untuk combat real-time, PvP, atau situasi yang membutuhkan reaksi cepat.
 
 ## Apa yang dibutuhkan
 
 1. Python 3.10+ untuk Windows.
-2. API key OpenAI yang disimpan lokal.
-3. Model OpenAI yang tersedia pada akunmu dan mendukung **vision serta tool/function calling**. Model dan kemampuan akun dapat berbeda, jadi verifikasi model yang dipilih sebelum menjalankan.
+2. API key provider yang disimpan lokal.
+3. Model provider yang tersedia pada akunmu dan mendukung **vision serta tool/function calling**. Model dan kemampuan akun dapat berbeda, jadi verifikasi model yang dipilih sebelum menjalankan.
 4. Dragon Nest dalam mode windowed agar area capture dan input mudah diuji.
 5. `mss`, `Pillow`, `openai`, `python-dotenv`, dan `pydirectinput`.
 6. Izin penggunaan otomasi sesuai aturan game. Script ini **tidak** menyertakan injeksi DLL, memory editing, hooking, atau fitur untuk menghindari anti-cheat.
@@ -40,19 +64,35 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q tests
 ```
 
-Opsional — install paket itu sendiri (metadata di `pyproject.toml`) agar `python -m dn_bot` berfungsi dari **folder mana pun** dan tersedia console script `dn-bot`:
+Opsional, install paket itu sendiri (metadata di `pyproject.toml`) agar `python -m dn_bot` berfungsi dari **folder mana pun** dan tersedia console script `dn-bot`:
 
 ```bat
 python -m pip install -e .   # editable: perubahan kode langsung terpakai tanpa install ulang
 ```
 
-Edit `.env` secara lokal:
+Edit `.env` secara lokal. Contoh provider lain:
 
 ```dotenv
-OPENAI_API_KEY=sk-proj-isi-api-key-di-sini
-# Isi dengan model OpenAI yang tersedia pada akunmu dan mendukung vision + tools.
-OPENAI_MODEL=isi-model-openai-yang-mendukung-vision-dan-tools
-DN_WINDOW_TITLE=Dragon Nest
+# OpenAI
+DN_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-isi-key-di-lokal
+OPENAI_MODEL=model-openai-yang-mendukung-vision-tools
+
+# OpenRouter
+DN_PROVIDER=openrouter
+OPENAI_API_KEY=isi-key-openrouter-di-lokal
+OPENAI_MODEL=provider/model-yang-mendukung-vision-tools
+
+# Groq
+DN_PROVIDER=groq
+OPENAI_API_KEY=gsk_isi-key-groq-di-lokal
+OPENAI_MODEL=model-groq-yang-mendukung-vision-tools
+
+# Endpoint OpenAI compatible milik operator
+DN_PROVIDER=custom
+DN_BASE_URL=https://endpoint.example/v1
+OPENAI_API_KEY=isi-key-endpoint-di-lokal
+OPENAI_MODEL=model-endpoint
 ```
 
 Jangan commit `.env`, karena berisi secret API. Jangan menaruh API key di source code.
@@ -79,7 +119,7 @@ Aturan pemeliharaan:
 
 ## Menjalankan
 
-1. Pastikan penggunaan bot/otomasi diizinkan oleh publisher Dragon Nest.
+1. Pastikan penggunaan bot atau otomasi diizinkan oleh publisher Dragon Nest.
 2. Jalankan game dalam **windowed mode**.
 3. Pastikan karakter berada di tempat yang aman dan tujuan eksperimen jelas.
 4. Aktifkan virtual environment.
@@ -91,7 +131,7 @@ python -m dn_bot
 
 Paket `dn_bot` kini punya metadata packaging (`pyproject.toml`). Setelah `python -m pip install -e .` dijalankan sekali (lihat Instalasi), `python -m dn_bot` berfungsi dari **folder mana pun**, dan tersedia pula console script `dn-bot` yang setara. Tanpa install, perintah hanya berjalan dari root proyek (paket ditemukan lewat cwd/`PYTHONPATH`) dan dari folder lain gagal dengan `ImportError: No module named 'dn_bot'`. Catatan: `.env` tetap dimuat relatif terhadap direktori kerja (tanpa pesan jika tidak ditemukan) — jalankan dari folder yang berisi `.env` (atau set env secara langsung), karena jika tidak preflight gagal dengan pesan seperti "OPENAI_API_KEY belum diatur".
 
-Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, `OPENAI_API_KEY` terisi **dan berformat wajar** (diawali `sk-` dengan panjang minimal — placeholder di `.env.example` ditolak), `OPENAI_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown. Cek fokus jendela (`check_target_window`) juga bersifat **fail-closed di non-Windows**: menolak berjalan (bukan melewati cek diam-diam), termasuk untuk pemanggilan programatik yang tidak lewat preflight.
+Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: memastikan platform Windows, provider, key provider di `OPENAI_API_KEY`, endpoint profile atau `DN_BASE_URL`, `OPENAI_MODEL`, dan `DN_WINDOW_TITLE` terisi, serta variabel capture (`DN_CAPTURE_*`/`DN_MONITOR`) valid. Key hanya diperiksa bentuk umumnya, bukan diautentikasi. Endpoint custom remote wajib HTTPS dan endpoint dengan kredensial, query, atau fragment ditolak. Jika ada yang salah, script berhenti dengan pesan yang jelas tanpa menunggu countdown. Cek fokus jendela (`check_target_window`) juga bersifat **fail-closed di non-Windows**: menolak berjalan (bukan melewati cek diam-diam), termasuk untuk pemanggilan programatik yang tidak lewat preflight.
 
 Tujuan sesi dapat diatur lewat flag CLI `--instruction "<teks>"` atau env `DN_INSTRUCTION` di `.env` (flag CLI menang atas env). Jika keduanya tidak diatur, dipakai teks bawaan — sama persis dengan perilaku default sebelumnya.
 
@@ -120,7 +160,7 @@ mkdir traces
 python -m dn_bot --farm-profile minotaur --dry-run --record-trace traces\\minotaur.json
 ```
 
-Recorder hanya menyimpan field JSON versi 1 yang sudah disanitasi. Ia tidak menyimpan screenshot, respons model mentah, API key, judul window, atau teks UI bebas. File baru ditulis secara atomic ketika sesi selesai sukses atau menghasilkan device failure saat eksekusi primitive; kegagalan device pada primitive dapat menyimpan hasil kegagalan yang sudah tervalidasi agar bisa direplay, sedangkan kegagalan safety sebelum aksi, API, atau policy tidak menulis trace parsial. Dalam mode recorder, kegagalan API, policy, keselamatan, device, atau penulisan trace menghasilkan exit code bukan nol. `Ctrl+C` adalah penghentian operator normal, sehingga proses dapat selesai dengan exit code nol tetapi tidak menulis trace sukses. CLI menampilkan peringatan saat recorder aktif. Folder tujuan harus sudah ada. Recorder saat ini belum memiliki batas jumlah langkah atau byte yang dapat dikonfigurasi; kombinasi dengan `--until-stopped` dapat menambah penggunaan memory tanpa batas, sehingga batas recorder masih memerlukan keputusan operator sebelum dipakai untuk sesi panjang.
+Recorder hanya menyimpan field JSON versi 1 yang sudah disanitasi. Ia tidak menyimpan screenshot, respons model mentah, API key, judul window, atau teks UI bebas. File baru ditulis secara atomic ketika sesi selesai sukses atau menghasilkan device failure saat eksekusi primitive; kegagalan safety sebelum aksi, API, atau policy tidak menulis trace parsial. Dalam mode recorder, kegagalan API, policy, keselamatan, device, atau penulisan trace menghasilkan exit code bukan nol. `Ctrl+C` adalah penghentian operator normal, sehingga proses dapat selesai dengan exit code nol tetapi tidak menulis trace sukses. CLI menampilkan peringatan saat recorder aktif. Folder tujuan harus sudah ada. Recorder saat ini belum memiliki batas jumlah langkah atau byte; kombinasi dengan `--until-stopped` dapat menambah penggunaan memory tanpa batas, sehingga batas recorder masih memerlukan keputusan operator sebelum dipakai untuk sesi panjang.
 
 Jalankan replay langsung dari entrypoint:
 
@@ -140,7 +180,7 @@ Untuk melatih (rehearsal) loop penuh **tanpa input fisik apa pun**, jalankan den
 python -m dn_bot --dry-run
 ```
 
-Mode ini menjalankan siklus capture → model → aksi → frame baru persis seperti sesi normal, tetapi aksi fisik yang dimaksud **hanya di-log dan tidak pernah dieksekusi**: setiap primitif input dicatat dengan prefix `[dry-run]` (mis. `[dry-run] moveTo(512, 384)`, `[dry-run] keyDown(f)`), sehingga cursor dan tombol tidak tersentuh sama sekali. Pemeriksaan keselamatan tetap berperilaku wajar: cek emergency stop tetap berjalan tetapi membaca posisi kursor yang disimulasikan aman (kursor tidak pernah digerakkan bot, jadi tidak pernah memicu abort — `Ctrl+C` tetap menghentikan sesi), dan cek fokus jendela (`DN_WINDOW_TITLE`) tetap berlaku. Kombinasikan dengan `--instruction "<teks>"` untuk menguji tujuan berbeda.
+Mode ini menjalankan siklus capture → model → aksi → frame baru persis seperti sesi normal, tetapi aksi fisik yang dimaksud **hanya di-log** (prefix `[dry-run]`) dan tidak pernah dieksekusi, sehingga cursor dan tombol tidak tersentuh sama sekali. Pemeriksaan keselamatan tetap berperilaku wajar: cek emergency stop membaca posisi kursor yang disimulasikan aman, dan cek fokus jendela (`DN_WINDOW_TITLE`) tetap berlaku. Kombinasikan dengan `--instruction "<teks>"` untuk menguji tujuan berbeda.
 
 Script memberi waktu lima detik untuk memindahkan fokus ke jendela game. **Hak Administrator tidak selalu diperlukan dan tidak menjamin input akan diterima.** Jika client game berjalan dengan hak yang lebih tinggi daripada terminal, Windows dapat membatasi input lintas proses.
 
@@ -160,7 +200,7 @@ Untuk mencegah aksi dikirim ke aplikasi yang salah, isi `DN_WINDOW_TITLE`. Jika 
 Screenshot monitor
       │ mss + Pillow
       ▼
-JPEG 1024x768 ──► OpenAI vision model
+JPEG 1024x768 ──► Provider vision model
                       │ OpenAI-compatible function call
                       ▼
        allow-listed input validation
@@ -173,18 +213,18 @@ JPEG 1024x768 ──► OpenAI vision model
 - Koordinat model pada area padding ditolak; koordinat pada area game dipetakan kembali memakai offset, ukuran content, dan capture region fisik.
 - Prompt agent juga menandai padding sebagai area non-actionable agar model memilih titik di dalam game.
 - Konten yang tampil di dalam screenshot (chat, dialog NPC, tulisan UI) diperlakukan sebagai **data tidak tepercaya**: `SYSTEM_PROMPT` menandainya dengan delimiter eksplisit (`<untrusted_screenshot>`) dan melarang menuruti instruksi yang berasal dari dalam gambar. Layar yang ambigu atau bertentangan dengan tujuan sesi mengakhiri sesi tanpa aksi.
-- `openai` Python SDK memakai endpoint resmi OpenAI.
+- SDK OpenAI dipakai hanya sebagai client untuk provider yang kompatibel; endpoint ditentukan oleh `DN_PROVIDER`.
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
-- `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari anchor tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
-- Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes, dan `DryRunDevice` untuk mode latihan `--dry-run` (meng-log aksi yang dimaksud tanpa mengeksekusinya) — mengganti library input cukup mengimplementasikan protocol baru, tanpa menyentuh logika aksi.
+- `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari titik tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
+- Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes, dan `DryRunDevice` untuk mode latihan `--dry-run` (meng-log aksi yang dimaksud tanpa mengeksekusinya).
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
 - Mode biasa dibatasi maksimal 10 langkah. Profil Minotaur dengan `--until-stopped` berjalan sampai operator atau watchdog menghentikannya.
-- Panggilan OpenAI memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
-- Setiap request OpenAI dibatasi timeout bawaan **60 detik** (atur `OPENAI_TIMEOUT` di `.env`, bilangan bulat positif dalam detik). Request yang hang diklasifikasi sebagai error jaringan dan ikut dicoba ulang oleh loop retry, sehingga sesi tidak terkunci tanpa responsivitas sampai batas default SDK.
-- Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenAI. API key, token, dan konten percakapan tidak pernah di-log. Judul window aktif di-sanitasi (karakter kontrol dan sekuens ANSI di-strip) sebelum masuk ke pesan log, dan detail pesan error OpenAI dibatasi panjangnya (maks 500 karakter) agar log tidak berisik.
+- Panggilan provider memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
+- Setiap request dibatasi timeout bawaan **60 detik** (atur `OPENAI_TIMEOUT` di `.env`, bilangan bulat positif dalam detik). Request yang hang diklasifikasi sebagai error jaringan dan ikut dicoba ulang oleh loop retry.
+- Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi request. API key, token, dan konten percakapan tidak pernah di-log. Judul window aktif disanitasi sebelum masuk pesan log, dan detail error provider dibatasi panjangnya.
 
 Function yang tersedia:
 
@@ -196,7 +236,7 @@ Function yang tersedia:
 - `move_camera` untuk mengarahkan camera ke endpoint absolut di content game; cursor di-anchor ke titik tengah screenshot pada setiap aksi
 - `wait`
 
-Ini memakai function calling melalui OpenAI API, bukan native computer-use API. Pastikan model yang dipilih mendukung vision dan tools sekaligus. Jika model gagal, cek model yang tersedia pada akun OpenAI dan ganti `OPENAI_MODEL`.
+Ini memakai function calling melalui SDK OpenAI ke endpoint kompatibel, bukan native computer-use API. Pastikan model yang dipilih mendukung vision dan tools sekaligus.
 
 ## Struktur file
 
@@ -205,36 +245,36 @@ Ini memakai function calling melalui OpenAI API, bukan native computer-use API. 
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
 │   ├── __main__.py    # Entrypoint CLI (argparse; replay subcommand / --instruction / --retreat-destination / --record-trace / DN_INSTRUCTION / --dry-run)
-│   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
+│   ├── config.py      # Konstanta, provider, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat
 │   ├── messages.py    # Kontrak wire-shape pesan OpenAI-compatible
 │   ├── device.py      # Seam input device (protocol + adapter pydirectinput + DryRunDevice)
 │   ├── farm.py        # Profil Minotaur, state machine, dan watchdog progres
 │   ├── input_control.py # Aksi fisik tervalidasi (via device seam)
-│   ├── api.py         # Klien OpenAI, retry, kontrak tool, SYSTEM_PROMPT
+│   ├── api.py         # Klien kompatibel, retry, kontrak tool, SYSTEM_PROMPT
 │   ├── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks
 │   └── recording.py   # Recorder trace Minotaur opt in dan writer atomic
 ├── tests/             # Suite offline (pytest)
 │   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
 │   ├── test_dn_bot.py
-│   ├── test_integration.py # Tes integration end-to-end loop (plan 016)
+│   ├── test_integration.py # Tes integration end-to-end loop
 │   ├── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
-│   ├── test_replay.py      # Tes runner replay trace Minotaur
+│   ├── test_replay.py      # Tes runner replay Minotaur
 │   ├── test_replay_cli.py  # Tes subcommand replay offline
 │   ├── test_recording.py   # Tes recorder trace, sanitization, atomic output, dan CLI
 │   └── test_farm_policy.py # Matriks invariant policy Minotaur, schema, dan prompt
 ├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
 │   └── tests.yml
-├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)
+├── plans/             # Inventaris temuan & rencana implementasi
 ├── requirements.txt   # Dependency runtime Python (pin eksak = lock)
-├── requirements-dev.txt # Dependency development + runtime untuk tes offline (pytest di atas -r requirements.txt)
-├── pyproject.toml      # Packaging setuptools: metadata, mirror deps requirements.txt, console script `dn-bot`
-├── pytest.ini         # Konfigurasi pytest (testpaths, pythonpath)
-├── CHANGELOG.md       # Riwayat perubahan (Keep a Changelog)
-├── SECURITY.md        # Threat model, asumsi trust boundary, mitigasi, status temuan
+├── requirements-dev.txt # Dependency development + runtime untuk tes offline
+├── pyproject.toml      # Packaging setuptools dan console script `dn-bot`
+├── pytest.ini         # Konfigurasi pytest
+├── CHANGELOG.md       # Riwayat perubahan
+├── SECURITY.md        # Threat model dan trust boundary
 ├── AGENTS.md          # Konvensi proyek untuk agen coding
-├── security_best_practices_report.md # Laporan audit keamanan awal (referensi read-only)
+├── security_best_practices_report.md # Laporan audit keamanan awal
 ├── .env.example       # Template konfigurasi; tidak berisi secret
 ├── .gitignore         # Mengecualikan .env, virtualenv, dan cache
 └── README.md
@@ -252,17 +292,17 @@ python -m pytest -q tests
 
 Konfigurasi pytest ada di `pytest.ini` (`testpaths = tests`, `pythonpath = .`), jadi `python -m pytest` (tanpa argumen) juga menjalankan seluruh suite dari root proyek.
 
-Tes ini offline: tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak memanggil OpenAI. GitHub Actions menjalankan compile check dan perintah pytest yang sama pada setiap push dan pull request.
+Tes ini offline: tidak membuka Dragon Nest, tidak menggerakkan mouse, dan tidak memanggil provider. GitHub Actions menjalankan compile check dan perintah pytest yang sama pada setiap push dan pull request.
 
 ## Troubleshooting
 
-### API key tidak ditemukan
+### Key atau provider tidak ditemukan
 
-Pastikan file bernama `.env` berada di folder proyek (satu tingkat di atas paket `dn_bot/`), dan berisi `OPENAI_API_KEY` yang valid.
+Pastikan file bernama `.env` berada di folder proyek dan berisi `OPENAI_API_KEY`, `DN_PROVIDER`, serta `OPENAI_MODEL` yang sesuai. Untuk Google gunakan key AI Studio dan `DN_PROVIDER=google`. Untuk OpenAI gunakan key `sk-`. Jangan mencampur key antar provider.
 
 ### Model tidak tersedia atau tool call gagal
 
-Atur `OPENAI_MODEL` ke model yang tersedia pada akun OpenAI dan mencantumkan kemampuan vision serta tool/function calling. Ketersediaan, kuota, dan kemampuan model dapat berubah.
+Atur `OPENAI_MODEL` ke model yang tersedia pada provider terpilih dan mencantumkan kemampuan vision serta tool/function calling. Ketersediaan, kuota, dan kemampuan model dapat berubah.
 
 Error transien seperti rate limit (429), gangguan server (5xx), atau masalah koneksi dicoba ulang otomatis (maksimal 3 percobaan, yaitu 2 retry) dengan backoff sebelum sesi berhenti. Error konfigurasi — API key salah (401/403), model tidak ditemukan (404), atau request ditolak (400/422) — langsung menghentikan sesi dengan pesan penyebab yang spesifik; perbaiki `.env` lalu jalankan ulang.
 
@@ -279,19 +319,19 @@ Pastikan game tampil pada region yang dikonfigurasi. Atur `DN_MONITOR` (indeks M
 
 ### Sesi berhenti sendiri
 
-Itu dapat terjadi karena failsafe, `Ctrl+C`, jendela kehilangan fokus, error OpenAI, input tidak valid, rate limit, atau batas 10 langkah. Periksa log terminal dan jangan menonaktifkan failsafe.
+Itu dapat terjadi karena failsafe, `Ctrl+C`, jendela kehilangan fokus, error provider, input tidak valid, rate limit, atau batas 10 langkah. Periksa log terminal dan jangan menonaktifkan failsafe.
 
 ## Batasan dan risiko
 
 - AI cloud tidak cukup cepat untuk gameplay aksi real-time.
 - Computer vision dapat salah mengenali objek atau UI; selalu awasi prosesnya.
 - Teks dalam game bisa berisi konten adversarial; agent diperintahkan memperlakukannya sebagai data tidak tepercaya, tetapi kepatuhan model terhadap instruksi tersebut tidak dijamin.
-- Ketersediaan, kuota, dan rate limit model OpenAI dapat berubah.
-- API key dan beberapa model dapat menimbulkan biaya; pastikan model yang dipilih benar-benar bertanda `:free`.
+- Ketersediaan, kuota, dan rate limit provider dapat berubah.
+- API key dan beberapa model dapat menimbulkan biaya; pastikan model dan tier yang dipilih sesuai.
 - Input otomatis dapat memicu aturan anti-cheat walaupun script tidak mencoba menghindarinya.
 - Publisher dapat mengubah client, keybind, UI, atau kebijakan kapan saja.
 - Tidak ada jaminan script berjalan pada semua versi/region Dragon Nest.
 
 Threat model, asumsi trust boundary, mitigasi yang ada, dan status temuan keamanan didokumentasikan di [`SECURITY.md`](SECURITY.md).
 
-Proyek ini tidak bertanggung jawab atas banned account, kehilangan progress, biaya API, kerusakan perangkat lunak, atau pelanggaran Terms of Service. Hentikan penggunaan jika publisher melarangnya.
+Proyek ini tidak bertanggung jawab atas banned account, kehilangan progress, biaya API, atau pelanggaran Terms of Service. Hentikan penggunaan jika publisher melarangnya.

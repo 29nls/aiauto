@@ -111,6 +111,37 @@ def test_replay_device_failure_preserves_authoritative_state():
     assert partial_report.device_calls == (("moveTo", (500, 400)),)
 
 
+def test_replay_fault_is_private_and_not_a_real_emergency_stop():
+    from dn_bot.replay import _ReplayDeviceFailure
+
+    assert not issubclass(_ReplayDeviceFailure, dn_bot.EmergencyStop)
+    assert not isinstance(_ReplayDeviceFailure("test"), dn_bot.EmergencyStop)
+
+
+def test_real_emergency_stop_is_not_translated_by_replay(monkeypatch):
+    trace = _trace(_step("operator-stop", "pre_dungeon", "wait"))
+    stop = dn_bot.EmergencyStop("operator stop")
+
+    def raise_stop(*args, **kwargs):
+        raise stop
+
+    monkeypatch.setattr(dn_bot.replay, "execute_game_action", raise_stop)
+    with pytest.raises(dn_bot.EmergencyStop) as error:
+        replay_trace(trace)
+    assert error.value is stop
+
+
+def test_replay_fault_still_uses_safety_wrapper_without_becoming_public_fault():
+    from dn_bot.replay import ReplayDevice, _ReplayDeviceFailure
+
+    device = ReplayDevice()
+    device.fail_before_first_primitive()
+    with pytest.raises(dn_bot.EmergencyStop) as error:
+        dn_bot.check_emergency_stop(device)
+    assert not isinstance(error.value, _ReplayDeviceFailure)
+    assert isinstance(error.value.__cause__, _ReplayDeviceFailure)
+
+
 @pytest.mark.parametrize(
     "action,action_fields",
     [

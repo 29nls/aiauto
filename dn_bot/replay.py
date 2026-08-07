@@ -62,8 +62,8 @@ class ReplayMismatch(ReplayTraceError):
     """Raised when replay output differs from the trace expectation."""
 
 
-class _ReplayDeviceFailure(EmergencyStop):
-    """Internal marker for an intentionally failed replay action."""
+class _ReplayDeviceFailure(RuntimeError):
+    """Private marker for a coarse replay failure before a primitive."""
 
 
 class ReplayResult(str, Enum):
@@ -251,6 +251,13 @@ class ReplayDevice:
             self._fail_after -= 1
 
 
+def _is_replay_device_failure(error: BaseException) -> bool:
+    """Recognize only this runner's fault through the safety wrapper."""
+    return isinstance(error, _ReplayDeviceFailure) or isinstance(
+        error.__cause__, _ReplayDeviceFailure
+    )
+
+
 def replay_trace(
     trace: ReplayTrace | Mapping[str, Any],
     *,
@@ -313,15 +320,24 @@ def replay_trace(
                     frame=_REPLAY_FRAME,
                     device=device,
                 )
-        except _ReplayDeviceFailure:
+        except _ReplayDeviceFailure as error:
             if expected.result is not ReplayResult.DEVICE_FAILURE:
-                raise ReplayMismatch(f"Step {index}: device gagal tanpa ekspektasi.")
+                raise ReplayMismatch(f"Step {index}: device gagal tanpa ekspektasi.") from error
             if expected.state_after is not expected.state_before:
                 raise ReplayMismatch(
                     f"Step {index}: device_failure harus mempertahankan state."
-                )
+                ) from error
         except ValueError as error:
             raise ReplayTraceError(f"Step {index}: aksi tidak valid: {error}") from None
+        except Exception as error:
+            if not isinstance(error, EmergencyStop) or not _is_replay_device_failure(error):
+                raise
+            if expected.result is not ReplayResult.DEVICE_FAILURE:
+                raise ReplayMismatch(f"Step {index}: device gagal tanpa ekspektasi.") from error
+            if expected.state_after is not expected.state_before:
+                raise ReplayMismatch(
+                    f"Step {index}: device_failure harus mempertahankan state."
+                ) from error
         else:
             if expected.result is ReplayResult.DEVICE_FAILURE:
                 raise ReplayMismatch(f"Step {index}: device_failure tidak terjadi.")

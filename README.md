@@ -113,13 +113,14 @@ Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dunge
 python -m dn_bot --farm-profile minotaur --until-stopped --dry-run
 ```
 
-Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi. Untuk merekam sesi farming secara opt in, gunakan path file lokal bersama profil Minotaur:
+Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi. Untuk merekam sesi farming secara opt in, buat folder tujuan terlebih dahulu lalu gunakan path file lokal bersama profil Minotaur:
 
 ```bat
+mkdir traces
 python -m dn_bot --farm-profile minotaur --dry-run --record-trace traces\\minotaur.json
 ```
 
-Recorder hanya menyimpan field JSON versi 1 yang sudah disanitasi. Ia tidak menyimpan screenshot, respons model mentah, API key, judul window, atau teks UI bebas. File baru ditulis secara atomic ketika sesi selesai sukses atau menghasilkan device failure yang eksplisit; kegagalan device dapat menyimpan hasil kegagalan yang sudah tervalidasi agar bisa direplay, sedangkan kegagalan API, policy, atau keselamatan tidak menulis trace parsial. Dalam mode recorder, kegagalan sesi menghasilkan exit code bukan nol. CLI menampilkan peringatan saat recorder aktif. Folder tujuan harus sudah ada.
+Recorder hanya menyimpan field JSON versi 1 yang sudah disanitasi. Ia tidak menyimpan screenshot, respons model mentah, API key, judul window, atau teks UI bebas. File baru ditulis secara atomic ketika sesi selesai sukses atau menghasilkan device failure saat eksekusi primitive; kegagalan device pada primitive dapat menyimpan hasil kegagalan yang sudah tervalidasi agar bisa direplay, sedangkan kegagalan safety sebelum aksi, API, atau policy tidak menulis trace parsial. Dalam mode recorder, kegagalan API, policy, keselamatan, device, atau penulisan trace menghasilkan exit code bukan nol. `Ctrl+C` adalah penghentian operator normal, sehingga proses dapat selesai dengan exit code nol tetapi tidak menulis trace sukses. CLI menampilkan peringatan saat recorder aktif. Folder tujuan harus sudah ada. Recorder saat ini belum memiliki batas jumlah langkah atau byte yang dapat dikonfigurasi; kombinasi dengan `--until-stopped` dapat menambah penggunaan memory tanpa batas, sehingga batas recorder masih memerlukan keputusan operator sebelum dipakai untuk sesi panjang.
 
 Jalankan replay langsung dari entrypoint:
 
@@ -180,7 +181,7 @@ JPEG 1024x768 ──► OpenRouter vision model
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.
 - Riwayat request dibatasi agar context tidak terus membesar; instruction awal, tool-call/result terbaru yang masih diperlukan, dan screenshot terkini dipertahankan.
 - Satu siklus observasi menjalankan paling banyak satu aksi fisik.
-- Sesi dibatasi maksimal 10 langkah.
+- Mode biasa dibatasi maksimal 10 langkah. Profil Minotaur dengan `--until-stopped` berjalan sampai operator atau watchdog menghentikannya.
 - Panggilan OpenRouter memakai retry terbatas (maksimal 3 percobaan, yaitu 2 retry) dengan backoff untuk error transien (rate limit 429, gangguan server 5xx, koneksi). Retry hanya membungkus permintaan, bukan eksekusi aksi, sehingga aksi tidak pernah diulang. Error konfigurasi (API key, model, request ditolak) tidak diulang dan langsung melaporkan penyebab yang spesifik.
 - Setiap request OpenRouter dibatasi timeout bawaan **60 detik** (atur `OPENROUTER_TIMEOUT` di `.env`, bilangan bulat positif dalam detik). Request yang hang diklasifikasi sebagai error jaringan dan ikut dicoba ulang oleh loop retry, sehingga sesi tidak terkunci tanpa responsivitas sampai batas default SDK.
 - Log berisi observability ringan **tanpa secret**: session ID unik per sesi, durasi tiap langkah, dimensi region capture, dan latensi tiap request OpenRouter. API key, token, dan konten percakapan tidak pernah di-log. Judul window aktif di-sanitasi (karakter kontrol dan sekuens ANSI di-strip) sebelum masuk ke pesan log, dan detail pesan error OpenRouter dibatasi panjangnya (maks 500 karakter) agar log tidak berisik.

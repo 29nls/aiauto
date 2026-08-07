@@ -221,7 +221,8 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
 │   ├── test_replay.py      # Tes runner replay trace Minotaur
 │   ├── test_replay_cli.py  # Tes subcommand replay offline
-│   └── test_recording.py   # Tes recorder trace, sanitization, atomic output, dan CLI
+│   ├── test_recording.py   # Tes recorder trace, sanitization, atomic output, dan CLI
+│   └── test_farm_policy.py # Matriks invariant policy Minotaur, schema, dan prompt
 ├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
 │   └── tests.yml
 ├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)

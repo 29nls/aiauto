@@ -111,6 +111,86 @@ def test_replay_device_failure_preserves_authoritative_state():
     assert partial_report.device_calls == (("moveTo", (500, 400)),)
 
 
+@pytest.mark.parametrize(
+    "action,action_fields",
+    [
+        ("wait", {}),
+        ("left_click", {"coordinate": [500, 400]}),
+    ],
+    ids=["wait-position-check", "click-position-check"],
+)
+def test_replay_zero_call_device_failure_fails_before_first_primitive(
+    action, action_fields
+):
+    trace = _trace(
+        _step(
+            "position-failure",
+            "pre_dungeon",
+            action,
+            before="pre_dungeon",
+            after="pre_dungeon",
+            calls=(),
+            result="device_failure",
+            **action_fields,
+        )
+    )
+
+    report = replay_trace(trace)
+
+    assert report.final_state is dn_bot.FarmState.PRE_DUNGEON
+    assert report.device_calls == ()
+
+
+def test_zero_call_failure_preserves_state_for_following_replay_step():
+    trace = _trace(
+        _step(
+            "position-failure",
+            "pre_dungeon",
+            "wait",
+            before="pre_dungeon",
+            after="pre_dungeon",
+            calls=(),
+            result="device_failure",
+        ),
+        _step(
+            "enter-after-failure",
+            "entering_dungeon",
+            "left_click",
+            coordinate=[500, 400],
+            before="pre_dungeon",
+            after="entering_dungeon",
+            calls=(("moveTo", (500, 400)), ("click", ())),
+        ),
+    )
+
+    report = replay_trace(trace)
+
+    assert report.steps_replayed == 2
+    assert report.final_state is dn_bot.FarmState.ENTERING_DUNGEON
+    assert report.device_calls == (
+        ("moveTo", (500, 400)),
+        ("click", ()),
+    )
+
+
+def test_replay_rejects_zero_call_failure_that_changes_state():
+    trace = _trace(
+        _step(
+            "invalid-failure-state",
+            "entering_dungeon",
+            "left_click",
+            coordinate=[500, 400],
+            before="pre_dungeon",
+            after="entering_dungeon",
+            calls=(),
+            result="device_failure",
+        )
+    )
+
+    with pytest.raises(ReplayTraceError, match="device_failure"):
+        replay_trace(trace)
+
+
 def test_replay_enforces_loot_stability_and_retreat_destination():
     first = _trace(
         _step("enter", "entering_dungeon", "left_click", coordinate=[500, 400], before="pre_dungeon", after="entering_dungeon", calls=(("moveTo", (500, 400)), ("click", ()))),

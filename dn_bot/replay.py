@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 from .capture import Frame, _geometry_for_region
 from . import input_control as _input_control
-from .config import ACTION_KEYS, MOVE_KEYS, validate_retreat_destination
+from .config import ACTION_KEYS, EmergencyStop, MOVE_KEYS, validate_retreat_destination
 from .farm import (
     FarmObservationClaim,
     FarmProfile,
@@ -62,7 +62,7 @@ class ReplayMismatch(ReplayTraceError):
     """Raised when replay output differs from the trace expectation."""
 
 
-class _ReplayDeviceFailure(RuntimeError):
+class _ReplayDeviceFailure(EmergencyStop):
     """Internal marker for an intentionally failed replay action."""
 
 
@@ -211,9 +211,17 @@ class ReplayDevice:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self._fail_after: int | None = None
+        self._fail_before_first_primitive = False
 
     def position(self) -> tuple[int, int]:
+        if self._fail_before_first_primitive:
+            self._fail_before_first_primitive = False
+            raise _ReplayDeviceFailure("Simulated device failure before first primitive.")
         return (100, 100)
+
+    def fail_before_first_primitive(self) -> None:
+        """Fail the next safety position check before any primitive call."""
+        self._fail_before_first_primitive = True
 
     def moveTo(self, x: int, y: int) -> None:
         self._record("moveTo", (x, y))
@@ -284,7 +292,13 @@ def replay_trace(
         before_calls = len(device.calls)
         try:
             if expected.result is ReplayResult.DEVICE_FAILURE:
-                device.fail_after(len(expected.device_calls))
+                if expected.device_calls:
+                    device.fail_after(len(expected.device_calls))
+                else:
+                    # A zero-call device failure is deliberately coarse. It
+                    # represents failure before the first primitive, such as
+                    # an emergency-stop position observation failure.
+                    device.fail_before_first_primitive()
             # The action implementation is reused unchanged. Only the two
             # live-only guards are replaced for this in-memory runner: replay
             # has no focused game window and must not wait in real time.

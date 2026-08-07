@@ -2,8 +2,6 @@ import json
 import subprocess
 import sys
 
-import dn_bot
-
 
 _TRACE = {
     "version": 1,

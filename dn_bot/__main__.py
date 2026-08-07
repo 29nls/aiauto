@@ -92,7 +92,7 @@ def _run_replay_cli(argv: list[str]) -> None:
     try:
         trace = load_replay_trace(args.trace)
         report = replay_trace(trace)
-    except (ReplayTraceError, FarmSafetyStop, OSError, ValueError) as error:
+    except (ReplayTraceError, FarmSafetyStop) as error:
         print(f"Replay gagal: {error}", file=sys.stderr)
         raise SystemExit(1) from None
     print(
@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> None:
     if command_args and command_args[0] == "replay":
         _run_replay_cli(command_args[1:])
         return
-    args = _parse_args(argv)
+    args = _parse_args(command_args)
     if args.until_stopped and not args.farm_profile:
         raise SystemExit("--until-stopped membutuhkan --farm-profile minotaur.")
     instruction = _resolve_instruction(args.instruction)

@@ -112,6 +112,18 @@ def test_retreat_click_requires_a_coordinate_pair():
             )
 
 
+def test_run_budget_recovery_can_return_to_pre_dungeon():
+    watchdog = dn_bot.FarmWatchdog(
+        dn_bot.MINOTAUR_PROFILE,
+        max_actions_per_run=1,
+        state_timeout_seconds=60,
+    )
+    watchdog.validate_and_advance("entering_dungeon", "left_click")
+    assert watchdog.state is dn_bot.FarmState.RECOVERY
+    watchdog.validate_and_advance("pre_dungeon", "wait")
+    assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
+
+
 def test_watchdog_recovery_counter_is_cumulative():
     watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE, max_recovery_attempts=2)
     watchdog.validate_and_advance("recovery", "wait")
@@ -407,6 +419,10 @@ def test_minotaur_policy_drives_watchdog_schema_and_prompt():
     assert profile.transitions == {
         state: phase.transitions for state, phase in policy.items()
     }
+    assert all(
+        set(phase.actions_by_next_state) == set(phase.transitions)
+        for phase in policy.values()
+    )
     assert [
         state.value
         for state in policy

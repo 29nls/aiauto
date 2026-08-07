@@ -49,75 +49,111 @@ _FARM_ACTIONS = frozenset(_FARM_ACTION_VALUES)
 
 @dataclass(frozen=True)
 class FarmPhasePolicy:
-    """Declarative rules for one farming phase."""
+    """Declarative actions for each legal next state in one phase."""
 
-    allowed_actions: FrozenSet[str]
-    transitions: FrozenSet[FarmState]
+    actions_by_next_state: Mapping[FarmState, FrozenSet[str]]
     required_key: str | None = None
     requires_stable_wait: bool = False
     click_labels: tuple[str, ...] = ()
     coordinate_required: bool = False
-    transition_actions: Mapping[FarmState, FrozenSet[str]] | None = None
+
+    @property
+    def transitions(self) -> FrozenSet[FarmState]:
+        return frozenset(self.actions_by_next_state)
+
+    @property
+    def allowed_actions(self) -> FrozenSet[str]:
+        return frozenset(
+            action
+            for actions in self.actions_by_next_state.values()
+            for action in actions
+        )
 
 
 MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
     FarmState.PRE_DUNGEON: FarmPhasePolicy(
-        allowed_actions=frozenset({"left_click", "mouse_move", "wait"}),
-        transitions=frozenset(
-            {FarmState.PRE_DUNGEON, FarmState.ENTERING_DUNGEON, FarmState.RECOVERY}
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.PRE_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.ENTERING_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.RECOVERY: frozenset({"left_click", "mouse_move", "wait"}),
+            }
         ),
     ),
     FarmState.ENTERING_DUNGEON: FarmPhasePolicy(
-        allowed_actions=_FARM_ACTIONS,
-        transitions=frozenset(
-            {FarmState.ENTERING_DUNGEON, FarmState.COMBAT, FarmState.RECOVERY}
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.ENTERING_DUNGEON: _FARM_ACTIONS,
+                FarmState.COMBAT: _FARM_ACTIONS,
+                FarmState.RECOVERY: _FARM_ACTIONS,
+            }
         ),
     ),
     FarmState.COMBAT: FarmPhasePolicy(
-        allowed_actions=_FARM_ACTIONS,
-        transitions=frozenset({FarmState.COMBAT, FarmState.BOSS_REWARD, FarmState.RECOVERY}),
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.COMBAT: _FARM_ACTIONS,
+                FarmState.BOSS_REWARD: _FARM_ACTIONS,
+                FarmState.RECOVERY: _FARM_ACTIONS,
+            }
+        ),
     ),
     FarmState.BOSS_REWARD: FarmPhasePolicy(
-        allowed_actions=frozenset({"wait"}),
-        transitions=frozenset({FarmState.BOSS_REWARD, FarmState.LOOT_CHEST, FarmState.RECOVERY}),
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.BOSS_REWARD: frozenset({"wait"}),
+                FarmState.LOOT_CHEST: frozenset({"wait"}),
+                FarmState.RECOVERY: frozenset({"wait"}),
+            }
+        ),
     ),
     FarmState.LOOT_CHEST: FarmPhasePolicy(
-        allowed_actions=frozenset({"left_click", "mouse_move", "wait"}),
-        transitions=frozenset({FarmState.LOOT_CHEST, FarmState.LOOT_RESULT, FarmState.RECOVERY}),
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.LOOT_CHEST: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.LOOT_RESULT: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.RECOVERY: frozenset({"left_click", "mouse_move", "wait"}),
+            }
+        ),
     ),
     FarmState.LOOT_RESULT: FarmPhasePolicy(
-        allowed_actions=frozenset({"wait", "press_action_key"}),
-        transitions=frozenset({FarmState.LOOT_RESULT, FarmState.RETREAT_DIALOG, FarmState.RECOVERY}),
-        required_key="f12",
-        requires_stable_wait=True,
-        transition_actions=MappingProxyType(
+        actions_by_next_state=MappingProxyType(
             {
                 FarmState.LOOT_RESULT: frozenset({"wait"}),
                 FarmState.RETREAT_DIALOG: frozenset({"press_action_key"}),
                 FarmState.RECOVERY: frozenset({"wait"}),
             }
         ),
+        required_key="f12",
+        requires_stable_wait=True,
     ),
     FarmState.RETREAT_DIALOG: FarmPhasePolicy(
-        allowed_actions=frozenset({"left_click", "wait"}),
-        transitions=frozenset({FarmState.RETREAT_DIALOG, FarmState.RETURN_WAIT, FarmState.RECOVERY}),
-        click_labels=("town", "stage entrance"),
-        coordinate_required=True,
-        transition_actions=MappingProxyType(
+        actions_by_next_state=MappingProxyType(
             {
                 FarmState.RETREAT_DIALOG: frozenset({"wait"}),
                 FarmState.RETURN_WAIT: frozenset({"left_click"}),
                 FarmState.RECOVERY: frozenset({"wait"}),
             }
         ),
+        click_labels=("town", "stage entrance"),
+        coordinate_required=True,
     ),
     FarmState.RETURN_WAIT: FarmPhasePolicy(
-        allowed_actions=frozenset({"wait"}),
-        transitions=frozenset({FarmState.RETURN_WAIT, FarmState.PRE_DUNGEON, FarmState.RECOVERY}),
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.RETURN_WAIT: frozenset({"wait"}),
+                FarmState.PRE_DUNGEON: frozenset({"wait"}),
+                FarmState.RECOVERY: frozenset({"wait"}),
+            }
+        ),
     ),
     FarmState.RECOVERY: FarmPhasePolicy(
-        allowed_actions=frozenset({"press_action_key", "wait"}),
-        transitions=frozenset({FarmState.RECOVERY, FarmState.PRE_DUNGEON}),
+        actions_by_next_state=MappingProxyType(
+            {
+                FarmState.RECOVERY: frozenset({"press_action_key", "wait"}),
+                FarmState.PRE_DUNGEON: frozenset({"wait"}),
+            }
+        ),
         required_key="f12",
     ),
 })
@@ -169,14 +205,13 @@ def farm_policy_prompt(
             )
         if phase.coordinate_required:
             rules.append("requires a screenshot coordinate")
-        if phase.transition_actions:
-            rules.append(
-                "transition actions "
-                + "; ".join(
-                    f"{target.value}: {', '.join(sorted(actions))}"
-                    for target, actions in phase.transition_actions.items()
-                )
+        rules.append(
+            "next state actions "
+            + "; ".join(
+                f"{target.value}: {', '.join(sorted(actions))}"
+                for target, actions in phase.actions_by_next_state.items()
             )
+        )
         suffix = f" rules [{'; '.join(rules)}]." if rules else "."
         lines.append(
             f"- {state.value}: actions [{actions}], next states [{transitions}]{suffix}"
@@ -289,10 +324,13 @@ class FarmWatchdog:
                 f"Dialog retreat tidak boleh menekan {_LOOT_EXIT_KEY.upper()}; "
                 f"pilih {_RETREAT_LABEL_TEXT}."
             )
-        allowed_actions = phase.allowed_actions
-        if phase.transition_actions is not None:
-            allowed_actions = phase.transition_actions.get(candidate, frozenset())
+        allowed_actions = phase.actions_by_next_state.get(candidate, frozenset())
         if action not in allowed_actions:
+            if self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON:
+                raise FarmSafetyStop(
+                    "Recovery hanya boleh melaporkan pre_dungeon setelah wait "
+                    "berhasil dan layar baru terkonfirmasi."
+                )
             if phase.click_labels or phase.coordinate_required:
                 raise FarmSafetyStop(
                     "Dialog retreat hanya boleh wait atau klik "
@@ -312,12 +350,6 @@ class FarmWatchdog:
             if phase.requires_stable_wait and not self._loot_result_stabilized:
                 raise FarmSafetyStop(
                     "Loot belum stabil; lakukan wait di loot_result sebelum menekan F12."
-                )
-        if self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON:
-            if action != "wait":
-                raise FarmSafetyStop(
-                    "Recovery hanya boleh melaporkan pre_dungeon setelah wait "
-                    "berhasil dan layar baru terkonfirmasi."
                 )
         if phase.click_labels or phase.coordinate_required:
             if action == "wait" and candidate in {
@@ -347,7 +379,10 @@ class FarmWatchdog:
                 f"State {self.state.value} tidak menunjukkan progres setelah "
                 f"{self.max_actions_without_transition} aksi."
             )
-        if self._actions_in_run >= self.max_actions_per_run:
+        leaving_recovery = (
+            self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON
+        )
+        if self._actions_in_run >= self.max_actions_per_run and not leaving_recovery:
             raise FarmSafetyStop(
                 f"Run melewati batas {self.max_actions_per_run} aksi; sesi dihentikan."
             )
@@ -414,7 +449,10 @@ class FarmWatchdog:
         stalled = (
             elapsed >= self.state_timeout_seconds
             or self._actions_without_transition >= self.max_actions_without_transition
-            or self._actions_in_run >= self.max_actions_per_run
+            or (
+                self.state != FarmState.RECOVERY
+                and self._actions_in_run >= self.max_actions_per_run
+            )
         )
         if not stalled:
             return

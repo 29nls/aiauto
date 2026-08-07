@@ -14,7 +14,11 @@ from types import MappingProxyType
 import time
 from typing import FrozenSet, Mapping
 
-from .config import TARGET_HEIGHT, TARGET_WIDTH
+from .config import (
+    TARGET_HEIGHT,
+    TARGET_WIDTH,
+    validate_retreat_destination,
+)
 
 
 class FarmSafetyStop(RuntimeError):
@@ -235,7 +239,7 @@ def farm_policy_prompt(
             rules.append("requires a stable loot wait")
         if phase.click_labels:
             rules.append(
-                "click labels "
+                "retreat label candidates "
                 + ", ".join(label.title() for label in phase.click_labels)
             )
         if phase.coordinate_required:
@@ -285,8 +289,10 @@ MINOTAUR_PROFILE = FarmProfile(
         f"jelas terlihat. Setelah loot result stabil dan {_LOOT_EXIT_KEY.upper()} terlihat, "
         f"gunakan press_action_key dengan text {_LOOT_EXIT_KEY} untuk membuka dialog "
         f"{_RETREAT_LABEL_TEXT} dan laporkan retreat_dialog. Pada retreat_dialog, "
-        f"klik hanya opsi {_RETREAT_LABEL_TEXT} yang terlihat jelas (atau wait); "
-        f"jangan menekan {_LOOT_EXIT_KEY.upper()} lagi. "
+        "klik hanya opsi yang terlihat jelas dan diizinkan konfigurasi operator "
+        f"(label umum: {_RETREAT_LABEL_TEXT}) atau wait; jangan menekan "
+        f"{_LOOT_EXIT_KEY.upper()} lagi. Python menolak label yang tidak cocok "
+        "dengan tujuan operator. "
         "Setelah memilih lokasi, laporkan return_wait dan hanya wait sampai layar "
         "pre_dungeon siap. Jangan menebak koordinat atau melompati dialog.\n"
         "Jika layar ambigu, tidak berubah, fokus hilang, atau aksi aman tidak "
@@ -306,6 +312,7 @@ class FarmWatchdog:
         max_actions_per_run: int = 200,
         state_timeout_seconds: float = 180.0,
         max_recovery_attempts: int = 2,
+        retreat_destination: str | None = None,
         clock=time.monotonic,
     ) -> None:
         if max_actions_without_transition < 1:
@@ -322,6 +329,7 @@ class FarmWatchdog:
         self.max_actions_per_run = max_actions_per_run
         self.state_timeout_seconds = state_timeout_seconds
         self.max_recovery_attempts = max_recovery_attempts
+        self.retreat_destination = validate_retreat_destination(retreat_destination)
         self._clock = clock
         self._state_started_at = clock()
         self._actions_without_transition = 0
@@ -404,6 +412,13 @@ class FarmWatchdog:
                 if (
                     not phase.coordinate_required or _is_screen_coordinate(coordinate)
                 ) and normalized_text in phase.click_labels:
+                    if (
+                        self.retreat_destination is not None
+                        and normalized_text != self.retreat_destination.replace("_", " ")
+                    ):
+                        raise FarmSafetyStop(
+                            "Tujuan retreat tidak cocok dengan konfigurasi operator."
+                        )
                     return candidate
                 raise FarmSafetyStop(
                     f"Dialog retreat hanya boleh klik opsi {_RETREAT_LABEL_TEXT} "

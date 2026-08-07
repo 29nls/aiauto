@@ -44,8 +44,8 @@ def test_observation_claim_is_not_authoritative_until_action_succeeds(
     watchdogs = []
     device = RecordingDevice()
 
-    def build_watchdog(profile):
-        watchdog = dn_bot.FarmWatchdog(profile)
+    def build_watchdog(profile, **kwargs):
+        watchdog = dn_bot.FarmWatchdog(profile, **kwargs)
         watchdogs.append(watchdog)
         return watchdog
 
@@ -97,8 +97,8 @@ def test_orchestrator_commits_claim_after_successful_device(capture_region):
     )
     watchdogs = []
 
-    def build_watchdog(profile):
-        watchdog = dn_bot.FarmWatchdog(profile)
+    def build_watchdog(profile, **kwargs):
+        watchdog = dn_bot.FarmWatchdog(profile, **kwargs)
         watchdogs.append(watchdog)
         return watchdog
 
@@ -134,6 +134,79 @@ def test_validate_legacy_wire_claim_delegates_to_claim_boundary():
         is dn_bot.FarmState.ENTERING_DUNGEON
     )
     assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
+
+
+@pytest.mark.parametrize(
+    "destination,label",
+    [("town", "Town"), ("stage_entrance", "Stage Entrance")],
+)
+def test_configured_retreat_destination_accepts_only_matching_label(
+    destination, label
+):
+    watchdog = dn_bot.FarmWatchdog(
+        dn_bot.MINOTAUR_PROFILE,
+        retreat_destination=destination,
+    )
+    for state, action in [
+        ("entering_dungeon", "left_click"),
+        ("combat", "wait"),
+        ("boss_reward", "wait"),
+        ("loot_chest", "wait"),
+        ("loot_result", "wait"),
+    ]:
+        watchdog.validate_and_advance(state, action)
+    watchdog.validate_and_advance("loot_result", "wait")
+    watchdog.validate_and_advance("retreat_dialog", "press_action_key", "f12")
+
+    watchdog.validate_and_advance(
+        "return_wait", "left_click", label, coordinate=[700, 400]
+    )
+
+
+@pytest.mark.parametrize(
+    "destination,label",
+    [("town", "Stage Entrance"), ("stage_entrance", "Town")],
+)
+def test_configured_retreat_destination_rejects_mismatched_label(
+    destination, label
+):
+    watchdog = dn_bot.FarmWatchdog(
+        dn_bot.MINOTAUR_PROFILE,
+        retreat_destination=destination,
+    )
+    for state, action in [
+        ("entering_dungeon", "left_click"),
+        ("combat", "wait"),
+        ("boss_reward", "wait"),
+        ("loot_chest", "wait"),
+        ("loot_result", "wait"),
+    ]:
+        watchdog.validate_and_advance(state, action)
+    watchdog.validate_and_advance("loot_result", "wait")
+    watchdog.validate_and_advance("retreat_dialog", "press_action_key", "f12")
+
+    with pytest.raises(dn_bot.FarmSafetyStop, match="konfigurasi operator"):
+        watchdog.validate_and_advance(
+            "return_wait", "left_click", label, coordinate=[700, 400]
+        )
+
+
+def test_unset_retreat_destination_keeps_both_labels_backward_compatible():
+    for label in ("Town", "Stage Entrance"):
+        watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE)
+        for state, action in [
+            ("entering_dungeon", "left_click"),
+            ("combat", "wait"),
+            ("boss_reward", "wait"),
+            ("loot_chest", "wait"),
+            ("loot_result", "wait"),
+        ]:
+            watchdog.validate_and_advance(state, action)
+        watchdog.validate_and_advance("loot_result", "wait")
+        watchdog.validate_and_advance("retreat_dialog", "press_action_key", "f12")
+        watchdog.validate_and_advance(
+            "return_wait", "left_click", label, coordinate=[700, 400]
+        )
 
 
 def test_watchdog_accepts_documented_minotaur_flow():
@@ -524,6 +597,43 @@ def test_farm_loop_executes_explicit_exit_phases_with_recorder(capture_region):
     ]
 
 
+@pytest.mark.parametrize(
+    "destination,label",
+    [("town", "Town"), ("stage_entrance", "Stage Entrance")],
+)
+def test_configured_destination_is_mentioned_in_session_prompt(
+    destination, label, capture_region
+):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768}, encoded="frame")
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **payload: _sdk_response(content="selesai")
+            )
+        )
+    )
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.orchestrator, "_call_openrouter", wraps=dn_bot.orchestrator._call_openrouter
+    ) as call:
+        with pytest.raises(dn_bot.FarmSafetyStop, match="tidak mengirim aksi/state"):
+            dn_bot.run_dn_bot(
+                "farm minotaur",
+                max_steps=1,
+                farm_profile=dn_bot.MINOTAUR_PROFILE,
+                retreat_destination=destination,
+            )
+
+    prompt = call.call_args.kwargs["system_prompt"]
+    assert label in prompt
+    assert "Python akan menolaknya" in prompt
+
+
 def test_minotaur_policy_drives_watchdog_schema_and_prompt():
     policy = dn_bot.MINOTAUR_PHASE_POLICY
     profile = dn_bot.MINOTAUR_PROFILE
@@ -558,8 +668,10 @@ def test_minotaur_policy_drives_watchdog_schema_and_prompt():
             assert action in prompt
         for target in phase.transitions:
             assert target.value in prompt
-    assert "Town atau Stage Entrance" in prompt
+    assert "Stage Entrance" in prompt
+    assert "retreat label candidates" in prompt
     assert "requires a stable loot wait" in prompt
+    assert "label umum: Town atau Stage Entrance" in prompt
 
 
 def test_minotaur_tool_requires_farm_state():

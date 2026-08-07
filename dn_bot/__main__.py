@@ -11,8 +11,10 @@ from .config import (
     START_DELAY_SECONDS,
     EmergencyStop,
     FocusLost,
+    RETREAT_DESTINATIONS,
     log,
     preflight_configuration,
+    resolve_retreat_destination,
 )
 from .device import DryRunDevice
 from .farm import FarmSafetyStop, MINOTAUR_PROFILE
@@ -43,6 +45,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Dalam profil farming, ulangi run sampai operator menghentikan "
             "dengan Ctrl+C atau emergency stop."
+        ),
+    )
+    parser.add_argument(
+        "--retreat-destination",
+        choices=list(RETREAT_DESTINATIONS),
+        help=(
+            "Tujuan retreat Minotaur. Precedence: flag ini > env "
+            "DN_RETREAT_DESTINATION > mode legacy (keduanya diizinkan)."
         ),
     )
     parser.add_argument(
@@ -85,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
             "dieksekusi — primitif input yang dimaksud hanya di-log ([dry-run]).\n"
         )
     try:
-        preflight_configuration()
+        retreat_destination = resolve_retreat_destination(args.retreat_destination)
+        preflight_configuration(retreat_destination=retreat_destination)
     except (RuntimeError, ValueError) as error:
         log.error("Preflight gagal: %s", error)
         raise SystemExit(1) from error
@@ -100,6 +111,8 @@ def main(argv: list[str] | None = None) -> None:
             "farm_profile": profile,
             "until_stopped": args.until_stopped,
         }
+        if retreat_destination is not None:
+            kwargs["retreat_destination"] = retreat_destination
         if args.dry_run:
             # Rehearsal: same session path, but the injected device logs the
             # intended physical actions instead of performing them.
@@ -108,7 +121,10 @@ def main(argv: list[str] | None = None) -> None:
             run_dn_bot(instruction, **kwargs)
         else:
             # Byte-identical no-args path: production adapter is the default.
-            run_dn_bot(instruction)
+            if retreat_destination is None:
+                run_dn_bot(instruction)
+            else:
+                run_dn_bot(instruction, retreat_destination=retreat_destination)
     except (EmergencyStop, FocusLost, FarmSafetyStop) as error:
         log.warning("Sesi dihentikan: %s", error)
     except KeyboardInterrupt:

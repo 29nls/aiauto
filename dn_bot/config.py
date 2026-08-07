@@ -52,6 +52,11 @@ DEFAULT_INSTRUCTION = (
 # longer than OPENROUTER_KEY_MIN_LENGTH.
 OPENROUTER_KEY_PREFIX = "sk-or-v1-"
 OPENROUTER_KEY_MIN_LENGTH = 40
+# Optional Minotaur retreat destination. None preserves the legacy behavior
+# (both visible labels accepted); an explicit value makes the destination strict.
+RETREAT_DESTINATION_ENV = "DN_RETREAT_DESTINATION"
+RETREAT_DESTINATIONS = ("stage_entrance", "town")
+_UNSET = object()
 
 MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
 ACTION_KEYS = {
@@ -125,6 +130,31 @@ def _is_plausible_openrouter_key(value: str) -> bool:
     )
 
 
+def validate_retreat_destination(value: object | None) -> str | None:
+    """Validate one operator retreat destination, preserving only an unset value."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{RETREAT_DESTINATION_ENV} harus berupa salah satu: "
+            "stage_entrance atau town."
+        ) from None
+    normalized = value.strip().casefold()
+    if normalized not in RETREAT_DESTINATIONS:
+        raise ValueError(
+            f"{RETREAT_DESTINATION_ENV} harus berupa salah satu: "
+            "stage_entrance atau town."
+        ) from None
+    return normalized
+
+
+def resolve_retreat_destination(cli_value: str | None = None) -> str | None:
+    """Resolve CLI over env, or return None for the legacy both-label mode."""
+    if cli_value is not None:
+        return validate_retreat_destination(cli_value)
+    return validate_retreat_destination(os.getenv(RETREAT_DESTINATION_ENV))
+
+
 def _request_timeout() -> int:
     """Seconds before an OpenRouter request is aborted (env OPENROUTER_TIMEOUT).
 
@@ -178,8 +208,11 @@ def _validate_capture_env() -> None:
         raise ValueError("DN_MONITOR harus berupa bilangan bulat >= 1.")
 
 
-def preflight_configuration() -> None:
+def preflight_configuration(retreat_destination: object = _UNSET) -> None:
     """Validate startup configuration before the countdown delay.
+
+    ``retreat_destination`` is the already-resolved CLI value when provided.
+    The sentinel preserves the direct-call behavior of reading the environment.
 
     Runs before the 5-second countdown so misconfiguration fails fast with a
     clear message instead of after the delay. Raises on the first problem:
@@ -216,3 +249,7 @@ def preflight_configuration() -> None:
             "aplikasi lain."
         )
     _validate_capture_env()
+    if retreat_destination is _UNSET:
+        validate_retreat_destination(os.getenv(RETREAT_DESTINATION_ENV))
+    else:
+        validate_retreat_destination(retreat_destination)

@@ -86,6 +86,7 @@ def run_dn_bot(
     *,
     farm_profile: FarmProfile | None = None,
     until_stopped: bool = False,
+    retreat_destination: str | None = None,
 ) -> None:
     """Run a bounded screenshot -> OpenRouter -> validated action loop.
 
@@ -119,7 +120,15 @@ def run_dn_bot(
         )
 
     session_id = _new_session_id()
-    watchdog = FarmWatchdog(farm_profile) if farm_profile is not None else None
+    if farm_profile is None:
+        watchdog = None
+    elif retreat_destination is None:
+        watchdog = FarmWatchdog(farm_profile)
+    else:
+        watchdog = FarmWatchdog(
+            farm_profile,
+            retreat_destination=retreat_destination,
+        )
     mode_instruction = instruction
     frame_caption = "Current screenshot."
     system_prompt = None
@@ -128,6 +137,13 @@ def run_dn_bot(
         # FarmProfile contains only the workflow extension; retain the base
         # safety and untrusted-screenshot instructions in every mode.
         system_prompt = SYSTEM_PROMPT + farm_profile.system_prompt
+        if retreat_destination is not None:
+            system_prompt += (
+                "\n\nKonfigurasi operator membatasi tujuan retreat hanya ke "
+                f"{retreat_destination.replace('_', ' ').title()}. "
+                "Label lain adalah terlarang dan Python akan menolaknya; jangan "
+                "usulkan tujuan lain."
+            )
         frame_caption = watchdog.caption()
     limit_text = "sampai dihentikan operator" if until_stopped else f"maks {max_steps} langkah"
     log.info("Sesi %s dimulai (%s)", session_id, limit_text)

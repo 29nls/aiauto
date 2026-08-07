@@ -95,6 +95,8 @@ Sebelum countdown lima detik, script menjalankan **preflight konfigurasi**: mema
 
 Tujuan sesi dapat diatur lewat flag CLI `--instruction "<teks>"` atau env `DN_INSTRUCTION` di `.env` (flag CLI menang atas env). Jika keduanya tidak diatur, dipakai teks bawaan — sama persis dengan perilaku default sebelumnya.
 
+Untuk profil Minotaur, tujuan retreat dapat dikunci oleh operator ke `stage_entrance` atau `town` melalui `DN_RETREAT_DESTINATION`, atau flag `--retreat-destination`. Precedence adalah flag CLI, lalu env, lalu mode legacy saat unset yang menerima kedua label. Nilai lain ditolak saat preflight sebelum countdown. Python tetap memvalidasi label dan koordinat screenshot, sehingga klaim model tidak menjadi otoritas.
+
 ### Farming Minotaur berkelanjutan (`--farm-profile minotaur`)
 
 Untuk workflow farming yang memang diizinkan oleh game/server, gunakan profil Minotaur dengan watchdog:
@@ -185,7 +187,7 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 .
 ├── dn_bot/            # Package utama (python -m dn_bot)
 │   ├── __init__.py    # Re-export API publik
-│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / DN_INSTRUCTION / --dry-run)
+│   ├── __main__.py    # Entrypoint CLI (argparse; --instruction / --retreat-destination / DN_INSTRUCTION / --dry-run)
 │   ├── config.py      # Konstanta, eksespsi, parsing env, preflight
 │   ├── safety.py      # Emergency stop, cek fokus, sanitasi log, sleep responsif
 │   ├── capture.py     # Screenshot, letterbox, pemetaan koordinat

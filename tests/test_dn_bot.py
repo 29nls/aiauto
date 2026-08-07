@@ -1290,6 +1290,61 @@ def test_preflight_accepts_valid_configuration():
         dn_bot.preflight_configuration()
 
 
+@pytest.mark.parametrize("value", ["stage_entrance", "town", " STAGE_ENTRANCE "])
+def test_retreat_destination_accepts_supported_values(value):
+    assert dn_bot.validate_retreat_destination(value) == value.strip().casefold()
+
+
+def test_retreat_destination_unset_preserves_legacy_mode():
+    with patch.dict(os.environ, {}, clear=True):
+        assert dn_bot.resolve_retreat_destination() is None
+
+
+def test_retreat_destination_cli_wins_over_env():
+    with patch.dict(os.environ, {"DN_RETREAT_DESTINATION": "town"}, clear=True):
+        assert dn_bot.resolve_retreat_destination("stage_entrance") == "stage_entrance"
+
+
+def test_retreat_destination_env_is_used_when_cli_unset():
+    with patch.dict(os.environ, {"DN_RETREAT_DESTINATION": "town"}, clear=True):
+        assert dn_bot.resolve_retreat_destination() == "town"
+
+
+@pytest.mark.parametrize("value", [" ", "", "city", "stage", 1])
+def test_retreat_destination_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="DN_RETREAT_DESTINATION"):
+        dn_bot.validate_retreat_destination(value)
+
+
+def test_preflight_rejects_invalid_retreat_destination():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            "DN_RETREAT_DESTINATION": "city",
+        },
+        clear=True,
+    ):
+        with pytest.raises(ValueError, match="DN_RETREAT_DESTINATION"):
+            dn_bot.preflight_configuration()
+
+
+def test_cli_retreat_destination_overrides_invalid_environment_value():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENROUTER_API_KEY": _VALID_API_KEY,
+            "OPENROUTER_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            "DN_RETREAT_DESTINATION": "city",
+        },
+        clear=True,
+    ):
+        dn_bot.preflight_configuration(retreat_destination="town")
+
+
 def test_default_instruction_used_when_nothing_set():
     with patch.dict(os.environ, {}, clear=True):
         instruction = dn_bot.__main__._resolve_instruction(None)
@@ -1315,6 +1370,34 @@ def test_cli_instruction_wins_over_env():
         instruction = dn_bot.__main__._resolve_instruction("cli-text")
 
     assert instruction == "cli-text"
+
+
+def test_main_plumbs_retreat_destination_from_cli_over_env():
+    with patch.dict(
+        os.environ, {"DN_RETREAT_DESTINATION": "town"}, clear=True
+    ), patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main([
+            "--farm-profile", "minotaur", "--retreat-destination", "stage_entrance"
+        ])
+
+    assert run.call_args.kwargs["retreat_destination"] == "stage_entrance"
+
+
+def test_main_plumbs_retreat_destination_from_env():
+    with patch.dict(
+        os.environ, {"DN_RETREAT_DESTINATION": "town"}, clear=True
+    ), patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main(["--farm-profile", "minotaur"])
+
+    assert run.call_args.kwargs["retreat_destination"] == "town"
 
 
 def test_main_plumbs_cli_instruction_to_run_dn_bot():
@@ -1408,6 +1491,21 @@ def test_main_dry_run_flag_propagates_dry_run_device():
         dn_bot.__main__.main(["--dry-run"])
 
     run.assert_called_once()
+    assert isinstance(run.call_args.kwargs["device"], dn_bot.DryRunDevice)
+
+
+def test_main_dry_run_propagates_retreat_destination():
+    with patch.object(
+        dn_bot.__main__, "preflight_configuration"
+    ), patch.object(dn_bot.__main__.time, "sleep"), patch.object(
+        dn_bot.__main__, "run_dn_bot"
+    ) as run:
+        dn_bot.__main__.main([
+            "--farm-profile", "minotaur", "--dry-run",
+            "--retreat-destination", "town",
+        ])
+
+    assert run.call_args.kwargs["retreat_destination"] == "town"
     assert isinstance(run.call_args.kwargs["device"], dn_bot.DryRunDevice)
 
 

@@ -58,6 +58,8 @@ from .config import (
     API_RETRY_BASE_DELAY,
     MAX_CONTEXT_MESSAGES,
     MAX_STEPS_PER_SESSION,
+    RETREAT_DESTINATIONS,
+    RETREAT_DESTINATION_ENV,
     MOVE_DURATION,
     MOVE_KEYS,
     OPENROUTER_BASE_URL,
@@ -71,6 +73,8 @@ from .config import (
     _validate_capture_env,
     log,
     preflight_configuration,
+    resolve_retreat_destination,
+    validate_retreat_destination,
 )
 from .device import DeviceInput, DryRunDevice, PyDirectInputDevice
 from .farm import (
@@ -116,6 +120,8 @@ __all__ = [
     "API_RETRY_BASE_DELAY",
     "MAX_CONTEXT_MESSAGES",
     "MAX_STEPS_PER_SESSION",
+    "RETREAT_DESTINATIONS",
+    "RETREAT_DESTINATION_ENV",
     "MOVE_DURATION",
     "MOVE_KEYS",
     "OPENROUTER_BASE_URL",
@@ -126,6 +132,8 @@ __all__ = [
     "_int_env",
     "_validate_capture_env",
     "preflight_configuration",
+    "resolve_retreat_destination",
+    "validate_retreat_destination",
     # Capture
     "Frame",
     "_geometry_for_region",

@@ -160,6 +160,41 @@ MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
 
 
 @dataclass(frozen=True)
+class FarmObservationClaim:
+    """Untrusted model claim about the state after its proposed action."""
+
+    claimed_state: FarmState
+    text: str | None = None
+    coordinate: object | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.claimed_state, FarmState):
+            raise FarmSafetyStop(
+                "Klaim state farming tidak valid; sesi dihentikan."
+            )
+
+    @classmethod
+    def from_wire(
+        cls,
+        next_state: object,
+        text: str | None = None,
+        coordinate: object | None = None,
+    ) -> "FarmObservationClaim":
+        """Parse the model state without changing the authoritative workflow."""
+        try:
+            claimed_state = FarmState(next_state)
+        except (TypeError, ValueError) as error:
+            raise FarmSafetyStop(
+                "Model mengirim farm_state yang tidak dikenal; sesi dihentikan."
+            ) from error
+        return cls(
+            claimed_state=claimed_state,
+            text=text,
+            coordinate=coordinate,
+        )
+
+
+@dataclass(frozen=True)
 class FarmProfile:
     """Static workflow contract for a supported farming target."""
 
@@ -302,13 +337,21 @@ class FarmWatchdog:
         text: str | None = None,
         coordinate: object | None = None,
     ) -> FarmState:
-        """Validate a proposed transition without mutating workflow state."""
-        try:
-            candidate = FarmState(next_state)
-        except (TypeError, ValueError) as error:
-            raise FarmSafetyStop(
-                "Model mengirim farm_state yang tidak dikenal; sesi dihentikan."
-            ) from error
+        """Validate a legacy wire claim without mutating workflow state."""
+        return self.validate_claim(
+            FarmObservationClaim.from_wire(next_state, text, coordinate),
+            action,
+        )
+
+    def validate_claim(
+        self,
+        claim: FarmObservationClaim,
+        action: str,
+    ) -> FarmState:
+        """Validate a model claim without mutating workflow state."""
+        candidate = claim.claimed_state
+        text = claim.text
+        coordinate = claim.coordinate
 
         phase = self.profile.phase_policy[self.state]
         if candidate not in phase.transitions:
@@ -379,10 +422,10 @@ class FarmWatchdog:
                 f"State {self.state.value} tidak menunjukkan progres setelah "
                 f"{self.max_actions_without_transition} aksi."
             )
-        leaving_recovery = (
-            self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON
-        )
-        if self._actions_in_run >= self.max_actions_per_run and not leaving_recovery:
+        # Recovery must be able to spend its own bounded wait actions even
+        # when the failed run already exhausted its action budget. The
+        # no-progress budget and recovery-attempt limit still bound this path.
+        if self.state != FarmState.RECOVERY and self._actions_in_run >= self.max_actions_per_run:
             raise FarmSafetyStop(
                 f"Run melewati batas {self.max_actions_per_run} aksi; sesi dihentikan."
             )

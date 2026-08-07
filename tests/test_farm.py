@@ -23,6 +23,119 @@ def test_f12_is_allowlisted_and_executes_through_action_seam(capture_region):
     assert ("keyUp", ("f12",)) in device.calls
 
 
+def test_observation_claim_is_not_authoritative_until_action_succeeds(
+    capture_region,
+):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768}, encoded="frame")
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **payload: _sdk_response(
+                    tool_calls=[
+                        _sdk_tool_call(
+                            "call-1",
+                            '{"action":"left_click","farm_state":"entering_dungeon","coordinate":[500,400]}',
+                        )
+                    ]
+                )
+            )
+        )
+    )
+    watchdogs = []
+    device = RecordingDevice()
+
+    def build_watchdog(profile):
+        watchdog = dn_bot.FarmWatchdog(profile)
+        watchdogs.append(watchdog)
+        return watchdog
+
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.orchestrator, "FarmWatchdog", side_effect=build_watchdog
+    ), patch.object(
+        dn_bot.orchestrator, "execute_game_action", side_effect=RuntimeError("device failed")
+    ):
+        with pytest.raises(RuntimeError, match="device failed"):
+            dn_bot.run_dn_bot(
+                "farm minotaur",
+                max_steps=1,
+                farm_profile=dn_bot.MINOTAUR_PROFILE,
+                device=device,
+            )
+
+    assert len(watchdogs) == 1
+    watchdog = watchdogs[0]
+    assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
+
+    claim = dn_bot.FarmObservationClaim.from_wire("entering_dungeon")
+    assert watchdog.validate_claim(claim, "left_click") is dn_bot.FarmState.ENTERING_DUNGEON
+    assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
+    watchdog.advance(dn_bot.FarmState.ENTERING_DUNGEON, "left_click")
+    assert watchdog.state is dn_bot.FarmState.ENTERING_DUNGEON
+
+
+def test_orchestrator_commits_claim_after_successful_device(capture_region):
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768}, encoded="frame")
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **payload: _sdk_response(
+                    tool_calls=[
+                        _sdk_tool_call(
+                            "call-1",
+                            '{"action":"left_click","farm_state":"entering_dungeon","coordinate":[500,400]}',
+                        )
+                    ]
+                )
+            )
+        )
+    )
+    watchdogs = []
+
+    def build_watchdog(profile):
+        watchdog = dn_bot.FarmWatchdog(profile)
+        watchdogs.append(watchdog)
+        return watchdog
+
+    with patch.dict(
+        os.environ,
+        {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "test/free"},
+        clear=False,
+    ), patch.object(dn_bot.orchestrator, "get_openrouter_client", return_value=client), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.orchestrator, "FarmWatchdog", side_effect=build_watchdog
+    ), patch.object(dn_bot.orchestrator, "execute_game_action"):
+        dn_bot.run_dn_bot(
+            "farm minotaur",
+            max_steps=1,
+            farm_profile=dn_bot.MINOTAUR_PROFILE,
+            device=RecordingDevice(),
+        )
+
+    assert len(watchdogs) == 1
+    assert watchdogs[0].state is dn_bot.FarmState.ENTERING_DUNGEON
+
+
+def test_observation_claim_rejects_unvalidated_state_object():
+    with pytest.raises(dn_bot.FarmSafetyStop, match="Klaim state"):
+        dn_bot.FarmObservationClaim("entering_dungeon")
+
+
+def test_validate_legacy_wire_claim_delegates_to_claim_boundary():
+    watchdog = dn_bot.FarmWatchdog(dn_bot.MINOTAUR_PROFILE)
+    assert (
+        watchdog.validate("entering_dungeon", "left_click")
+        is dn_bot.FarmState.ENTERING_DUNGEON
+    )
+    assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
+
+
 def test_watchdog_accepts_documented_minotaur_flow():
     watchdog = dn_bot.FarmWatchdog(
         dn_bot.MINOTAUR_PROFILE, state_timeout_seconds=60, max_actions_without_transition=3
@@ -120,6 +233,7 @@ def test_run_budget_recovery_can_return_to_pre_dungeon():
     )
     watchdog.validate_and_advance("entering_dungeon", "left_click")
     assert watchdog.state is dn_bot.FarmState.RECOVERY
+    watchdog.validate_and_advance("recovery", "wait")
     watchdog.validate_and_advance("pre_dungeon", "wait")
     assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
 
@@ -140,15 +254,19 @@ def test_watchdog_rejects_non_text_action():
         watchdog.validate_and_advance("pre_dungeon", None)
 
 
-def test_watchdog_rejects_action_at_budget_before_execution():
+def test_watchdog_allows_bounded_recovery_after_action_budget():
     watchdog = dn_bot.FarmWatchdog(
         dn_bot.MINOTAUR_PROFILE,
         max_actions_without_transition=20,
         max_actions_per_run=1,
     )
     watchdog.validate_and_advance("entering_dungeon", "left_click")
-    with pytest.raises(dn_bot.FarmSafetyStop, match="batas"):
-        watchdog.ensure_action_allowed(dn_bot.FarmState.COMBAT)
+    assert watchdog.state is dn_bot.FarmState.RECOVERY
+
+    # The failed run budget must not block the recovery wait or its safe exit.
+    watchdog.ensure_action_allowed(dn_bot.FarmState.RECOVERY)
+    watchdog.validate_and_advance("recovery", "wait")
+    watchdog.ensure_action_allowed(dn_bot.FarmState.PRE_DUNGEON)
 
 
 def test_watchdog_stops_if_recovery_stalls():

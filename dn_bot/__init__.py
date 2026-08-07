@@ -74,6 +74,7 @@ from .config import (
 )
 from .device import DeviceInput, DryRunDevice, PyDirectInputDevice
 from .farm import (
+    FarmObservationClaim,
     FarmPhasePolicy,
     FarmProfile,
     FarmSafetyStop,
@@ -150,6 +151,7 @@ __all__ = [
     "DryRunDevice",
     "PyDirectInputDevice",
     # Farming workflow
+    "FarmObservationClaim",
     "FarmPhasePolicy",
     "FarmProfile",
     "FarmSafetyStop",

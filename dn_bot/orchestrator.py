@@ -18,7 +18,12 @@ from .config import (
     log,
 )
 from .device import DeviceInput, PyDirectInputDevice
-from .farm import FarmProfile, FarmSafetyStop, FarmWatchdog
+from .farm import (
+    FarmObservationClaim,
+    FarmProfile,
+    FarmSafetyStop,
+    FarmWatchdog,
+)
 from .input_control import execute_game_action
 from .messages import (
     assistant_message,
@@ -205,12 +210,12 @@ def run_dn_bot(
             else:
                 action = request.input.get("action")
                 if watchdog is not None:
-                    candidate_state = watchdog.validate(
+                    claim = FarmObservationClaim.from_wire(
                         request.input.get("farm_state"),
-                        action,
                         request.input.get("text"),
                         request.input.get("coordinate"),
                     )
+                    candidate_state = watchdog.validate_claim(claim, action)
                     watchdog.ensure_action_allowed(candidate_state)
                 try:
                     execute_game_action(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openrouter, get_openrouter_client
@@ -25,6 +26,8 @@ from .farm import (
     FarmWatchdog,
 )
 from .input_control import execute_game_action
+from .recording import TraceRecorder, TraceRecordingDevice, TraceRecordingError
+from .replay import ReplayResult
 from .messages import (
     assistant_message,
     frame_message,
@@ -87,6 +90,7 @@ def run_dn_bot(
     farm_profile: FarmProfile | None = None,
     until_stopped: bool = False,
     retreat_destination: str | None = None,
+    record_trace_path: str | Path | None = None,
 ) -> None:
     """Run a bounded screenshot -> OpenRouter -> validated action loop.
 
@@ -111,6 +115,8 @@ def run_dn_bot(
         raise ValueError("until_stopped harus berupa boolean.")
     if until_stopped and farm_profile is None:
         raise ValueError("until_stopped membutuhkan farm_profile.")
+    if record_trace_path is not None and farm_profile is None:
+        raise ValueError("record_trace_path membutuhkan farm_profile minotaur.")
 
     model = os.getenv("OPENROUTER_MODEL", "").strip()
     if not model:
@@ -120,6 +126,14 @@ def run_dn_bot(
         )
 
     session_id = _new_session_id()
+    recorder = (
+        TraceRecorder(record_trace_path, retreat_destination=retreat_destination)
+        if record_trace_path is not None
+        else None
+    )
+    active_device = (
+        TraceRecordingDevice(device) if recorder is not None else device
+    )
     if farm_profile is None:
         watchdog = None
     elif retreat_destination is None:
@@ -158,7 +172,7 @@ def run_dn_bot(
     while until_stopped or step < max_steps:
         step += 1
         step_started = time.monotonic()
-        check_emergency_stop(device)
+        check_emergency_stop(active_device)
         if watchdog is not None:
             watchdog.check()
             frame_caption = watchdog.caption()
@@ -178,6 +192,8 @@ def run_dn_bot(
                     tools=[MINOTAUR_TOOL],
                 )
         except RuntimeError as error:
+            if recorder is not None:
+                raise
             # The chained cause is suppressed in _call_openrouter (`from None`)
             # so verbose SDK details never reach this log (F-06); the message
             # carries the actionable classification plus a bounded detail.
@@ -192,6 +208,8 @@ def run_dn_bot(
             )
             return
         except (IndexError, AttributeError, TypeError, ValueError):
+            if recorder is not None:
+                raise
             log.exception("Respons model tidak valid; sesi dihentikan tanpa aksi tambahan.")
             log.info(
                 "Langkah %s selesai dalam %.1f s",
@@ -223,38 +241,70 @@ def run_dn_bot(
             if index > 0:
                 result = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
                 log.warning(result)
-            else:
-                action = request.input.get("action")
+                messages.append(tool_result(request.id, result))
+                continue
+
+            action = request.input.get("action")
+            state_before = watchdog.state if watchdog is not None else None
+            claim = None
+            if watchdog is not None:
+                claim = FarmObservationClaim.from_wire(
+                    request.input.get("farm_state"),
+                    request.input.get("text"),
+                    request.input.get("coordinate"),
+                )
+                candidate_state = watchdog.validate_claim(claim, action)
+                watchdog.ensure_action_allowed(candidate_state)
+            try:
+                if recorder is not None:
+                    active_device.begin_action()
+                execute_game_action(
+                    action=action,
+                    coordinate=request.input.get("coordinate"),
+                    text=request.input.get("text"),
+                    duration=request.input.get("duration", MOVE_DURATION),
+                    frame=frame,
+                    device=active_device,
+                )
+                result = f"Aksi {action!r} berhasil dijalankan."
                 if watchdog is not None:
-                    claim = FarmObservationClaim.from_wire(
-                        request.input.get("farm_state"),
-                        request.input.get("text"),
-                        request.input.get("coordinate"),
+                    watchdog.advance(candidate_state, action)
+                if recorder is not None:
+                    recorder.record_step(
+                        claim=claim,
+                        action=request.input,
+                        state_before=state_before,
+                        state_after=watchdog.state,
+                        device_calls=active_device.action_calls,
+                        result=ReplayResult.SUCCESS,
                     )
-                    candidate_state = watchdog.validate_claim(claim, action)
-                    watchdog.ensure_action_allowed(candidate_state)
-                try:
-                    execute_game_action(
-                        action=action,
-                        coordinate=request.input.get("coordinate"),
-                        text=request.input.get("text"),
-                        duration=request.input.get("duration", MOVE_DURATION),
-                        frame=frame,
-                        device=device,
-                    )
-                    result = f"Aksi {action!r} berhasil dijalankan."
-                    if watchdog is not None:
-                        watchdog.advance(candidate_state, action)
-                    log.info("Aksi: %s", action)
-                except (EmergencyStop, FocusLost, FarmSafetyStop):
+                log.info("Aksi: %s", action)
+            except (EmergencyStop, FocusLost, FarmSafetyStop, TraceRecordingError):
+                raise
+            except Exception as error:
+                if recorder is not None and not active_device.action_failed:
+                    # Validation and other non-device failures must not become
+                    # misleading device_failure trace entries.
                     raise
-                except Exception as error:
-                    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
-                    # `action` adalah input model (tak tepercaya): sanitasi sebelum
-                    # masuk pesan error agar tidak terjadi log injection (pola F-05).
-                    raise RuntimeError(
-                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
-                    ) from error
+                if recorder is not None and claim is not None:
+                    recorder.record_step(
+                        claim=claim,
+                        action=request.input,
+                        state_before=state_before,
+                        state_after=state_before,
+                        device_calls=active_device.action_calls,
+                        result=ReplayResult.DEVICE_FAILURE,
+                    )
+                    # A physical device failure is an explicit, replayable
+                    # failure outcome. Persist it before surfacing the original
+                    # session error; API and policy failures never flush.
+                    recorder.flush()
+                log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
+                # `action` adalah input model (tak tepercaya): sanitasi sebelum
+                # masuk pesan error agar tidak terjadi log injection (pola F-05).
+                raise RuntimeError(
+                    f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
+                ) from error
 
             messages.append(tool_result(request.id, result))
 
@@ -273,6 +323,8 @@ def run_dn_bot(
             time.monotonic() - step_started,
         )
 
+    if recorder is not None:
+        recorder.flush()
     if watchdog is not None:
         log.info("Farming berhenti setelah operator/guard menghentikan sesi.")
     else:

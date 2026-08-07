@@ -113,7 +113,15 @@ Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dunge
 python -m dn_bot --farm-profile minotaur --until-stopped --dry-run
 ```
 
-Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi. Jalankan replay langsung dari entrypoint:
+Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi. Untuk merekam sesi farming secara opt in, gunakan path file lokal bersama profil Minotaur:
+
+```bat
+python -m dn_bot --farm-profile minotaur --dry-run --record-trace traces\\minotaur.json
+```
+
+Recorder hanya menyimpan field JSON versi 1 yang sudah disanitasi. Ia tidak menyimpan screenshot, respons model mentah, API key, judul window, atau teks UI bebas. File baru ditulis secara atomic ketika sesi selesai sukses atau menghasilkan device failure yang eksplisit; kegagalan device dapat menyimpan hasil kegagalan yang sudah tervalidasi agar bisa direplay, sedangkan kegagalan API, policy, atau keselamatan tidak menulis trace parsial. Dalam mode recorder, kegagalan sesi menghasilkan exit code bukan nol. CLI menampilkan peringatan saat recorder aktif. Folder tujuan harus sudah ada.
+
+Jalankan replay langsung dari entrypoint:
 
 ```bat
 python -m dn_bot replay path\\to\\trace.json
@@ -204,7 +212,8 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── farm.py        # Profil Minotaur, state machine, dan watchdog progres
 │   ├── input_control.py # Aksi fisik tervalidasi (via device seam)
 │   ├── api.py         # Klien OpenRouter, retry, kontrak tool, SYSTEM_PROMPT
-│   └── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks
+│   ├── orchestrator.py # Loop sesi (run_dn_bot), kompaksi konteks
+│   └── recording.py   # Recorder trace Minotaur opt in dan writer atomic
 ├── tests/             # Suite offline (pytest)
 │   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
 │   ├── test_dn_bot.py

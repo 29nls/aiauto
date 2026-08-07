@@ -20,6 +20,7 @@ from .config import (
 from .device import DryRunDevice
 from .farm import FarmSafetyStop, MINOTAUR_PROFILE
 from .orchestrator import run_dn_bot
+from .recording import TraceRecordingError, load_trace_path
 from .replay import ReplayTraceError, load_replay_trace, replay_trace
 
 
@@ -55,6 +56,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Tujuan retreat Minotaur. Precedence: flag ini > env "
             "DN_RETREAT_DESTINATION > mode legacy (keduanya diizinkan)."
+        ),
+    )
+    parser.add_argument(
+        "--record-trace",
+        metavar="PATH",
+        help=(
+            "Simpan trace replay JSON versi 1 yang sudah disanitasi. "
+            "Hanya valid bersama --farm-profile minotaur."
         ),
     )
     parser.add_argument(
@@ -111,12 +120,27 @@ def main(argv: list[str] | None = None) -> None:
     args = _parse_args(command_args)
     if args.until_stopped and not args.farm_profile:
         raise SystemExit("--until-stopped membutuhkan --farm-profile minotaur.")
+    if args.record_trace is not None and not args.farm_profile:
+        raise SystemExit("--record-trace membutuhkan --farm-profile minotaur.")
+    if args.record_trace is not None:
+        try:
+            load_trace_path(args.record_trace)
+        except TraceRecordingError as error:
+            log.error("Recorder trace gagal: %s", error)
+            raise SystemExit(1) from None
     instruction = _resolve_instruction(args.instruction)
     print(
         "\nDragon Nest AI Agent\n"
         "Gunakan hanya di lingkungan yang diizinkan oleh Terms of Service game.\n"
         "Emergency stop: gerakkan kursor ke pojok kiri atas atau tekan Ctrl+C.\n"
     )
+    if args.record_trace is not None:
+        print(
+            "PERINGATAN: --record-trace aktif. Trace hanya berisi metadata "
+            "workflow yang disanitasi, tidak menyimpan screenshot, respons model "
+            "mentah, API key, judul window, atau teks UI bebas. Trace dapat "
+            "berisi koordinat layar dan label workflow.\n"
+        )
     if args.dry_run:
         print(
             "MODE DRY-RUN: loop penuh dijalankan tetapi aksi fisik TIDAK akan "
@@ -141,6 +165,8 @@ def main(argv: list[str] | None = None) -> None:
         }
         if retreat_destination is not None:
             kwargs["retreat_destination"] = retreat_destination
+        if args.record_trace is not None:
+            kwargs["record_trace_path"] = args.record_trace
         if args.dry_run:
             # Rehearsal: same session path, but the injected device logs the
             # intended physical actions instead of performing them.
@@ -154,10 +180,19 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 run_dn_bot(instruction, retreat_destination=retreat_destination)
     except (EmergencyStop, FocusLost, FarmSafetyStop) as error:
+        if args.record_trace is not None:
+            log.error("Recorder sesi dihentikan tanpa trace sukses: %s", error)
+            raise SystemExit(1) from None
         log.warning("Sesi dihentikan: %s", error)
+    except TraceRecordingError as error:
+        log.error("Recorder trace gagal: %s", error)
+        raise SystemExit(1) from None
     except KeyboardInterrupt:
         log.info("Sesi dihentikan oleh pengguna (Ctrl+C).")
     except Exception:
+        if args.record_trace is not None:
+            log.exception("Recorder sesi gagal; trace tidak dapat dianggap berhasil.")
+            raise SystemExit(1) from None
         log.exception("Error fatal; tidak ada aksi tambahan yang dijalankan.")
 
 

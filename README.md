@@ -113,7 +113,13 @@ Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dunge
 python -m dn_bot --farm-profile minotaur --until-stopped --dry-run
 ```
 
-Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi.
+Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi. Jalankan replay langsung dari entrypoint:
+
+```bat
+python -m dn_bot replay path\\to\\trace.json
+```
+
+Perintah ini hanya mencetak state akhir, jumlah step, dan jumlah device call. File yang hilang, schema tidak valid, policy violation, atau expectation mismatch menghasilkan exit code bukan nol dan pesan di stderr.
 
 Profil farming harus selalu diuji dengan `--dry-run` terlebih dahulu. Jika UI game berbeda dari alur di atas, sesi lebih baik berhenti daripada melakukan klik acak.
 
@@ -203,7 +209,9 @@ Ini memakai function calling OpenAI-compatible melalui OpenRouter, bukan native 
 │   ├── conftest.py    # Fixtures + RecordingDevice (recorder input in-memory)
 │   ├── test_dn_bot.py
 │   ├── test_integration.py # Tes integration end-to-end loop (plan 016)
-│   └── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
+│   ├── test_farm.py        # Tes state machine, watchdog, fase loot/retreat, dan CLI farming
+│   ├── test_replay.py      # Tes runner replay trace Minotaur
+│   └── test_replay_cli.py  # Tes subcommand replay offline
 ├── .github/workflows/ # CI: compileall + pytest (actions di-pin SHA penuh)
 │   └── tests.yml
 ├── plans/             # Inventaris temuan & rencana implementasi (001–017 + README)

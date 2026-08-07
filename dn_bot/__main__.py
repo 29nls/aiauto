@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 
 from .config import (
@@ -19,6 +20,7 @@ from .config import (
 from .device import DryRunDevice
 from .farm import FarmSafetyStop, MINOTAUR_PROFILE
 from .orchestrator import run_dn_bot
+from .replay import ReplayTraceError, load_replay_trace, replay_trace
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -79,7 +81,33 @@ def _resolve_instruction(cli_instruction: str | None) -> str:
     return os.getenv("DN_INSTRUCTION", "").strip() or DEFAULT_INSTRUCTION
 
 
+def _run_replay_cli(argv: list[str]) -> None:
+    """Run the offline replay subcommand without entering the live session."""
+    parser = argparse.ArgumentParser(
+        prog="python -m dn_bot replay",
+        description="Replay satu trace Minotaur secara offline.",
+    )
+    parser.add_argument("trace", help="Path file JSON replay versi 1.")
+    args = parser.parse_args(argv)
+    try:
+        trace = load_replay_trace(args.trace)
+        report = replay_trace(trace)
+    except (ReplayTraceError, FarmSafetyStop, OSError, ValueError) as error:
+        print(f"Replay gagal: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    print(
+        "Replay berhasil: "
+        f"final_state={report.final_state.value} "
+        f"steps={report.steps_replayed} "
+        f"device_calls={len(report.device_calls)}"
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
+    command_args = sys.argv[1:] if argv is None else list(argv)
+    if command_args and command_args[0] == "replay":
+        _run_replay_cli(command_args[1:])
+        return
     args = _parse_args(argv)
     if args.until_stopped and not args.farm_profile:
         raise SystemExit("--until-stopped membutuhkan --farm-profile minotaur.")

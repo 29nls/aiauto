@@ -97,6 +97,15 @@ from .safety import (
     check_emergency_stop,
     check_target_window,
 )
+from .replay import (
+    ReplayMismatch,
+    ReplayReport,
+    ReplayStep,
+    ReplayTrace,
+    ReplayTraceError,
+    load_replay_trace,
+    replay_trace,
+)
 
 __all__ = [
     # Modules
@@ -187,6 +196,14 @@ __all__ = [
     "_compact_messages",
     "_new_session_id",
     "run_dn_bot",
+    # Replay
+    "ReplayMismatch",
+    "ReplayReport",
+    "ReplayStep",
+    "ReplayTrace",
+    "ReplayTraceError",
+    "load_replay_trace",
+    "replay_trace",
     # Logging
     "log",
 ]

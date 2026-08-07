@@ -113,6 +113,8 @@ Profil ini menjalankan alur state terstruktur: `pre_dungeon` → `entering_dunge
 python -m dn_bot --farm-profile minotaur --until-stopped --dry-run
 ```
 
+Untuk regresi deterministik tanpa OpenRouter, screenshot, atau input fisik, gunakan replay JSON versi 1. Trace hanya menyimpan `frame_id` opaque, klaim state, payload aksi, state sebelum dan sesudah, serta hasil panggilan device. Jangan masukkan API key, screenshot, atau data pribadi.
+
 Profil farming harus selalu diuji dengan `--dry-run` terlebih dahulu. Jika UI game berbeda dari alur di atas, sesi lebih baik berhenti daripada melakukan klik acak.
 
 ### Mode latihan (`--dry-run`)

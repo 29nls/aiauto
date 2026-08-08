@@ -449,3 +449,107 @@ def test_record_replay_roundtrip_with_missing_coordinate_retry(tmp_path, capture
     assert "steps=1" in result.stdout
     assert "device_calls=2" in result.stdout
     assert result.stderr == ""
+
+
+def test_record_replay_roundtrip_with_device_failure(tmp_path, capture_region):
+    """Regression guard: a session whose valid action fails mid-primitive
+    (moveTo succeeds, click fails) records a replayable JSON v1 trace with a
+    ``device_failure`` step that preserves state (``state_before`` ==
+    ``state_after``) and only the partial calls that succeeded — and that
+    artifact replays identically both in-process and through the
+    ``python -m dn_bot replay`` CLI subprocess. Expectations are hand-authored;
+    no game window, screenshot, network, or credentials are involved."""
+
+    class ClickFailingDevice(RecordingDevice):
+        """moveTo succeeds; click fails — a mid-primitive device failure."""
+
+        def click(self):
+            self.calls.append(("click", ()))
+            raise RuntimeError("device click failed")
+
+    path = tmp_path / "trace.json"
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    replies = iter(
+        [
+            _reply(
+                "call-1",
+                {
+                    "action": "left_click",
+                    "farm_state": "entering_dungeon",
+                    "coordinate": [512, 384],
+                },
+            )
+        ]
+    )
+    requests = []
+    device = ClickFailingDevice()
+    with _env(), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openai",
+        side_effect=lambda *args, **kwargs: (
+            requests.append(args[2]),
+            next(replies),
+        )[1],
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(RuntimeError, match="Aksi 'left_click' gagal"):
+            dn_bot.run_dn_bot(
+                "farm minotaur",
+                max_steps=1,
+                farm_profile=dn_bot.MINOTAUR_PROFILE,
+                device=device,
+                record_trace_path=path,
+            )
+
+    # A device failure is a recorded outcome, not a retry: exactly one model
+    # request, and the session aborts fail closed after the trace is flushed.
+    assert len(requests) == 1
+
+    # Emitted trace: one device_failure step whose state is preserved and
+    # whose device_calls hold only the primitives that succeeded (moveTo was
+    # recorded; the failing click never became a call).
+    wire = json.loads(path.read_text(encoding="utf-8"))
+    assert wire["version"] == 1
+    assert wire["profile"] == "minotaur"
+    steps = wire["steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["frame_id"] == "frame_000001"
+    assert "text" not in step["claim"] and "text" not in step["action"]
+    assert step["claim"]["farm_state"] == "entering_dungeon"
+    assert step["claim"]["coordinate"] == [512, 384]
+    assert step["action"]["action"] == "left_click"
+    assert step["action"]["coordinate"] == [512, 384]
+    assert step["expected"]["state_before"] == "pre_dungeon"
+    assert step["expected"]["state_after"] == "pre_dungeon"
+    assert step["expected"]["result"] == "device_failure"
+    assert step["expected"]["device_calls"] == [
+        {"method": "moveTo", "args": [512, 384]}
+    ]
+
+    # In-process replay through the real offline machinery: the failure
+    # re-fires after the first primitive, the watchdog never advances, and
+    # only the successful call is counted.
+    report = replay_trace(load_replay_trace(path))
+    assert report.steps_replayed == 1
+    assert report.final_state is dn_bot.FarmState.PRE_DUNGEON
+    assert report.device_calls == (("moveTo", (512, 384)),)
+
+    # Replay through the shipped CLI subprocess, fully offline.
+    result = subprocess.run(
+        [sys.executable, "-m", "dn_bot", "replay", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Replay berhasil" in result.stdout
+    assert "final_state=pre_dungeon" in result.stdout
+    assert "steps=1" in result.stdout
+    assert "device_calls=1" in result.stdout
+    assert result.stderr == ""

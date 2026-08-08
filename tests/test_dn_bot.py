@@ -192,52 +192,6 @@ def test_google_legacy_client_uses_legacy_endpoint():
     assert mock_openai.call_args.kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
-def test_google_provider_injects_thought_signature_into_tool_call_history():
-    """Gemini requires thought_signature on every function-call object in
-    the history; without it the retry call fails with 400. Verify the API
-    layer injects a synthetic signature on a deep copy without mutating
-    the caller's messages."""
-    from copy import deepcopy
-
-    messages = [
-        {"role": "user", "content": "test"},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-                {
-                    "id": "call-1",
-                    "type": "function",
-                    "function": {
-                        "name": "dragon_nest_action",
-                        "arguments": '{"action": "left_click"}',
-                    },
-                }
-            ],
-        },
-        {"role": "tool", "tool_call_id": "call-1", "content": "error"},
-    ]
-    original = deepcopy(messages)
-
-    # Simulate the injection logic from _call_openai (provider == "google")
-    wire = deepcopy(messages)
-    for msg in wire:
-        if msg.get("role") != "assistant":
-            continue
-        for tc in msg.get("tool_calls", []) or []:
-            fn = tc.get("function")
-            if isinstance(fn, dict) and "thought_signature" not in fn:
-                fn["thought_signature"] = "skip"
-
-    assert (
-        wire[1]["tool_calls"][0]["function"]["thought_signature"] == "skip"
-    ), f"thought_signature not injected: {wire[1]}"
-
-    # Caller's messages must never be mutated.
-    assert "thought_signature" not in original[1]["tool_calls"][0]["function"], (
-        "Original messages were mutated!"
-    )
-
 
 def test_provider_client_matrix_uses_selected_endpoint():
     cases = [

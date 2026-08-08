@@ -330,13 +330,23 @@ def run_dn_bot(
                         log.warning(
                             "%s (sisa percobaan: %s)", result, coordinate_retries
                         )
-                        messages.append(tool_result(request.id, result))
-                        # Keep the wire complete: every tool call in this reply
-                        # needs a tool result before the model is re-asked.
-                        for extra in reply.tool_requests[index + 1 :]:
-                            messages.append(
-                                tool_result(extra.id, _EXTRA_ACTION_REJECTION)
+                        # Pop the assistant message with the invalid
+                        # function call (appended above) — sending it back
+                        # to Gemini in the history triggers a 400
+                        # thought_signature requirement. Replace with a
+                        # plain user message carrying the same feedback so
+                        # the retry call has zero function-call history.
+                        messages.pop()
+                        messages.append(
+                            user_text(
+                                f"{result} Coba lagi dengan koordinat yang "
+                                "benar dalam rentang 0-1023 untuk x dan "
+                                "0-767 untuk y. Screenshot yang sama:"
                             )
+                        )
+                        messages.append(
+                            frame_message(frame.encoded, frame_caption)
+                        )
                         retry = True
                         break
                     if recorder is not None and not active_device.action_failed:

@@ -96,13 +96,16 @@ def test_out_of_bounds_coordinate_is_reported_back_and_corrected(capture_region)
         dn_bot.run_dn_bot("go", max_steps=1, device=device)
 
     assert len(requests) == 2
+    # The retry call now carries the error as a user message (not a tool
+    # result) to avoid Gemini's thought_signature requirement.
     feedback = [
         message
         for message in requests[1]
-        if message.get("role") == "tool" and message.get("tool_call_id") == "call-1"
+        if message.get("role") == "user"
+        and isinstance(message.get("content"), str)
+        and "Koordinat tidak valid" in message["content"]
     ]
     assert feedback
-    assert feedback[0]["content"].startswith("Koordinat tidak valid")
     # The retry reuses the same frame: only the session start and the post-step
     # refresh captured, never a mid-retry screenshot.
     assert captures["count"] == 2
@@ -142,9 +145,11 @@ def test_missing_coordinate_is_reported_back_and_corrected(capture_region):
     feedback = [
         message
         for message in requests[1]
-        if message.get("role") == "tool" and message.get("tool_call_id") == "call-1"
+        if message.get("role") == "user"
+        and isinstance(message.get("content"), str)
+        and "Koordinat tidak valid" in message["content"]
     ]
-    assert feedback and feedback[0]["content"].startswith("Koordinat tidak valid")
+    assert feedback
     assert "membutuhkan coordinate" in feedback[0]["content"]
     assert not [call for call in device.calls if call[0] in _EXECUTED]
 
@@ -273,18 +278,17 @@ def test_coordinate_retry_answers_all_tool_calls_before_reasking(capture_region)
         dn_bot.run_dn_bot("go", max_steps=1, device=RecordingDevice())
 
     assert len(requests) == 2
+    # The invalid assistant message is popped before retry; the retry call
+    # carries error feedback as a user message with frame, not tool results.
     second_messages = requests[1]
-    tool_results = [
+    user_feedback = [
         message
         for message in second_messages
-        if message.get("role") == "tool"
+        if message.get("role") == "user"
+        and isinstance(message.get("content"), str)
+        and "Koordinat tidak valid" in message["content"]
     ]
-    answered = {message["tool_call_id"] for message in tool_results}
-    assert {"call-1", "call-2"} <= answered
-    assert any(
-        message.get("tool_call_id") == "call-2" and "ditolak" in message["content"]
-        for message in tool_results
-    )
+    assert user_feedback
 
 
 def test_coordinate_retry_exhausted_with_recorder_writes_no_trace(capture_region, tmp_path):
@@ -459,14 +463,18 @@ def test_record_replay_roundtrip_with_missing_coordinate_retry(tmp_path, capture
         )
 
     # The missing-coordinate attempt was reported back to the model (one
-    # retry), never executed, and never recorded.
+    # retry), never executed, and never recorded. The retry call carries
+    # error feedback as a user message (not a tool result) to avoid
+    # Gemini's thought_signature requirement on function-call history.
     assert len(requests) == 2
     feedback = [
         message
         for message in requests[1]
-        if message.get("role") == "tool" and message.get("tool_call_id") == "call-1"
+        if message.get("role") == "user"
+        and isinstance(message.get("content"), str)
+        and "Koordinat tidak valid" in message["content"]
     ]
-    assert feedback and feedback[0]["content"].startswith("Koordinat tidak valid")
+    assert feedback
     assert "membutuhkan coordinate" in feedback[0]["content"]
     # Only the corrected action reached the device, exactly once: the failed
     # attempt contributed zero primitives.

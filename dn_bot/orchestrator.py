@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openai, get_openai_client
-from .capture import capture_screen_base64
+from .capture import InvalidCoordinateError, capture_screen_base64
 from .config import (
     MAX_CONTEXT_MESSAGES,
     MAX_STEPS_PER_SESSION,
@@ -36,6 +36,13 @@ from .messages import (
     user_text,
 )
 from .safety import _sanitize_log_text, check_emergency_stop
+
+# The model may propose an action whose coordinate fails validation (outside
+# the 1024x768 frame, in the letterbox padding, or mapping onto the failsafe
+# corner). Such an action is never executed; the orchestrator reports the
+# failure back to the model as a tool result and re-asks for a corrected
+# action, up to this many times per step, before aborting fail closed.
+MAX_COORDINATE_RETRIES = 2
 
 
 def _compact_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -180,133 +187,179 @@ def run_dn_bot(
         log.info("Langkah %s/%s (session=%s)", step, step_limit, session_id)
         messages = _compact_messages(messages)
 
-        try:
-            if system_prompt is None:
-                reply = _call_openai(client, model, messages)
-            else:
-                reply = _call_openai(
-                    client,
-                    model,
-                    messages,
-                    system_prompt=system_prompt,
-                    tools=[MINOTAUR_TOOL],
-                )
-        except RuntimeError as error:
-            if recorder is not None:
-                raise
-            # The chained cause is suppressed in _call_openai (`from None`)
-            # so verbose SDK details never reach this log (F-06); the message
-            # carries the actionable classification plus a bounded detail.
-            log.exception(
-                "Provider API gagal; sesi dihentikan tanpa aksi tambahan: %s",
-                error,
-            )
-            log.info(
-                "Langkah %s selesai dalam %.1f s",
-                step,
-                time.monotonic() - step_started,
-            )
-            return
-        except (IndexError, AttributeError, TypeError, ValueError):
-            if recorder is not None:
-                raise
-            log.exception("Respons model tidak valid; sesi dihentikan tanpa aksi tambahan.")
-            log.info(
-                "Langkah %s selesai dalam %.1f s",
-                step,
-                time.monotonic() - step_started,
-            )
-            return
-
-        # Wire-shape history: assistant message + tool-calls are built via the
-        # contract module (messages.py), never as raw dicts.
-        messages.append(
-            assistant_message(reply.text, tool_calls_wire(reply.tool_requests))
-        )
-
-        if not reply.tool_requests:
-            if watchdog is not None:
-                raise FarmSafetyStop(
-                    "Model tidak mengirim aksi/state farming; sesi dihentikan aman."
-                )
-            log.info("Model tidak meminta aksi lagi; sesi selesai.")
-            log.info(
-                "Langkah %s selesai dalam %.1f s",
-                step,
-                time.monotonic() - step_started,
-            )
-            return
-
-        for index, request in enumerate(reply.tool_requests):
-            if index > 0:
-                result = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
-                log.warning(result)
-                messages.append(tool_result(request.id, result))
-                continue
-
-            action = request.input.get("action")
-            state_before = watchdog.state if watchdog is not None else None
-            claim = None
-            if watchdog is not None:
-                claim = FarmObservationClaim.from_wire(
-                    request.input.get("farm_state"),
-                    request.input.get("text"),
-                    request.input.get("coordinate"),
-                )
-                candidate_state = watchdog.validate_claim(claim, action)
-                watchdog.ensure_action_allowed(candidate_state)
+        # A model reply whose action fails coordinate validation (out of bounds,
+        # letterbox padding, or the failsafe corner) is never executed. The
+        # failure is reported back to the model as a tool result and the model
+        # is re-asked for a corrected action on the same frame, with a bounded
+        # retry budget per step. Any other action failure aborts fail closed.
+        coordinate_retries = MAX_COORDINATE_RETRIES
+        while True:
             try:
-                if recorder is not None:
-                    active_device.begin_action()
-                execute_game_action(
-                    action=action,
-                    coordinate=request.input.get("coordinate"),
-                    text=request.input.get("text"),
-                    duration=request.input.get("duration", MOVE_DURATION),
-                    frame=frame,
-                    device=active_device,
-                )
-                result = f"Aksi {action!r} berhasil dijalankan."
-                if watchdog is not None:
-                    watchdog.advance(candidate_state, action)
-                if recorder is not None:
-                    recorder.record_step(
-                        claim=claim,
-                        action=request.input,
-                        state_before=state_before,
-                        state_after=watchdog.state,
-                        device_calls=active_device.action_calls,
-                        result=ReplayResult.SUCCESS,
+                if system_prompt is None:
+                    reply = _call_openai(client, model, messages)
+                else:
+                    reply = _call_openai(
+                        client,
+                        model,
+                        messages,
+                        system_prompt=system_prompt,
+                        tools=[MINOTAUR_TOOL],
                     )
-                log.info("Aksi: %s", action)
-            except (EmergencyStop, FocusLost, FarmSafetyStop, TraceRecordingError):
-                raise
-            except Exception as error:
-                if recorder is not None and not active_device.action_failed:
-                    # Validation and other non-device failures must not become
-                    # misleading device_failure trace entries.
+            except RuntimeError as error:
+                if recorder is not None:
                     raise
-                if recorder is not None and claim is not None:
-                    recorder.record_step(
-                        claim=claim,
-                        action=request.input,
-                        state_before=state_before,
-                        state_after=state_before,
-                        device_calls=active_device.action_calls,
-                        result=ReplayResult.DEVICE_FAILURE,
-                    )
-                    # A physical device failure is an explicit, replayable
-                    # failure outcome. Persist it before surfacing the original
-                    # session error; API and policy failures never flush.
-                    recorder.flush()
-                log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
-                # `action` adalah input model (tak tepercaya): sanitasi sebelum
-                # masuk pesan error agar tidak terjadi log injection (pola F-05).
-                raise RuntimeError(
-                    f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
-                ) from error
+                # The chained cause is suppressed in _call_openai (`from None`)
+                # so verbose SDK details never reach this log (F-06); the message
+                # carries the actionable classification plus a bounded detail.
+                log.exception(
+                    "Provider API gagal; sesi dihentikan tanpa aksi tambahan: %s",
+                    error,
+                )
+                log.info(
+                    "Langkah %s selesai dalam %.1f s",
+                    step,
+                    time.monotonic() - step_started,
+                )
+                return
+            except (IndexError, AttributeError, TypeError, ValueError):
+                if recorder is not None:
+                    raise
+                log.exception(
+                    "Respons model tidak valid; sesi dihentikan tanpa aksi tambahan."
+                )
+                log.info(
+                    "Langkah %s selesai dalam %.1f s",
+                    step,
+                    time.monotonic() - step_started,
+                )
+                return
 
-            messages.append(tool_result(request.id, result))
+            # Wire-shape history: assistant message + tool-calls are built via
+            # the contract module (messages.py), never as raw dicts.
+            messages.append(
+                assistant_message(reply.text, tool_calls_wire(reply.tool_requests))
+            )
+
+            if not reply.tool_requests:
+                if watchdog is not None:
+                    raise FarmSafetyStop(
+                        "Model tidak mengirim aksi/state farming; sesi dihentikan aman."
+                    )
+                log.info("Model tidak meminta aksi lagi; sesi selesai.")
+                log.info(
+                    "Langkah %s selesai dalam %.1f s",
+                    step,
+                    time.monotonic() - step_started,
+                )
+                return
+
+            retry = False
+            for index, request in enumerate(reply.tool_requests):
+                if index > 0:
+                    result = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
+                    log.warning(result)
+                    messages.append(tool_result(request.id, result))
+                    continue
+
+                action = request.input.get("action")
+                state_before = watchdog.state if watchdog is not None else None
+                claim = None
+                if watchdog is not None:
+                    claim = FarmObservationClaim.from_wire(
+                        request.input.get("farm_state"),
+                        request.input.get("text"),
+                        request.input.get("coordinate"),
+                    )
+                    candidate_state = watchdog.validate_claim(claim, action)
+                    watchdog.ensure_action_allowed(candidate_state)
+                try:
+                    if recorder is not None:
+                        active_device.begin_action()
+                    execute_game_action(
+                        action=action,
+                        coordinate=request.input.get("coordinate"),
+                        text=request.input.get("text"),
+                        duration=request.input.get("duration", MOVE_DURATION),
+                        frame=frame,
+                        device=active_device,
+                    )
+                    result = f"Aksi {action!r} berhasil dijalankan."
+                    if watchdog is not None:
+                        watchdog.advance(candidate_state, action)
+                    if recorder is not None:
+                        recorder.record_step(
+                            claim=claim,
+                            action=request.input,
+                            state_before=state_before,
+                            state_after=watchdog.state,
+                            device_calls=active_device.action_calls,
+                            result=ReplayResult.SUCCESS,
+                        )
+                    log.info("Aksi: %s", action)
+                except (EmergencyStop, FocusLost, FarmSafetyStop, TraceRecordingError):
+                    raise
+                except InvalidCoordinateError as error:
+                    if coordinate_retries > 0:
+                        coordinate_retries -= 1
+                        result = f"Koordinat tidak valid: {error}"
+                        log.warning(
+                            "%s (sisa percobaan: %s)", result, coordinate_retries
+                        )
+                        messages.append(tool_result(request.id, result))
+                        # Keep the wire complete: every tool call in this reply
+                        # needs a tool result before the model is re-asked.
+                        for extra in reply.tool_requests[index + 1 :]:
+                            messages.append(
+                                tool_result(
+                                    extra.id,
+                                    "Aksi ditolak: hanya satu aksi per screenshot "
+                                    "yang diizinkan.",
+                                )
+                            )
+                        retry = True
+                        break
+                    if recorder is not None and not active_device.action_failed:
+                        # Coordinate validation failures never reach the device;
+                        # they must not become misleading device_failure entries.
+                        raise
+                    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
+                    # `action` adalah input model (tak tepercaya): sanitasi
+                    # sebelum masuk pesan error (pola F-05).
+                    raise RuntimeError(
+                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
+                    ) from error
+                except Exception as error:
+                    if recorder is not None and not active_device.action_failed:
+                        # Validation and other non-device failures must not
+                        # become misleading device_failure trace entries.
+                        raise
+                    if recorder is not None and claim is not None:
+                        recorder.record_step(
+                            claim=claim,
+                            action=request.input,
+                            state_before=state_before,
+                            state_after=state_before,
+                            device_calls=active_device.action_calls,
+                            result=ReplayResult.DEVICE_FAILURE,
+                        )
+                        # A physical device failure is an explicit, replayable
+                        # failure outcome. Persist it before surfacing the
+                        # original session error; API and policy failures never
+                        # flush.
+                        recorder.flush()
+                    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
+                    # `action` adalah input model (tak tepercaya): sanitasi
+                    # sebelum masuk pesan error agar tidak terjadi log injection
+                    # (pola F-05).
+                    raise RuntimeError(
+                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
+                    ) from error
+
+                messages.append(tool_result(request.id, result))
+
+            if retry:
+                continue
+            break
 
         # A fresh screenshot is a separate user message after the tool results.
         # This avoids asking the model to act on a stale frame.

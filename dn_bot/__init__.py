@@ -38,6 +38,7 @@ from .api import (
 # frame explicitly. There are no module-level capture globals left to patch.
 from .capture import (
     Frame,
+    InvalidCoordinateError,
     _geometry_for_region,
     _letterbox,
     _physical_point,
@@ -134,6 +135,7 @@ __all__ = [
     "CaptureGeometry",
     "EmergencyStop",
     "FocusLost",
+    "InvalidCoordinateError",
     # Constants
     "ACTION_COOLDOWN",
     "ACTION_KEYS",
@@ -164,6 +166,7 @@ __all__ = [
     "validate_retreat_destination",
     # Capture
     "Frame",
+    "InvalidCoordinateError",
     "_geometry_for_region",
     "_letterbox",
     "_physical_point",

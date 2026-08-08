@@ -131,6 +131,17 @@ def capture_screen_base64() -> Frame:
     )
 
 
+class InvalidCoordinateError(ValueError):
+    """A model-supplied coordinate that cannot be safely mapped to the screen.
+
+    Raised for malformed coordinates, coordinates outside the 1024x768 model
+    frame, coordinates inside the letterbox padding, and coordinates that map
+    onto the failsafe corner. The orchestrator treats it as a retryable model
+    error: the action is never executed, the failure is reported back to the
+    model, and the model is asked for a corrected coordinate.
+    """
+
+
 def _physical_point(coordinate: Sequence[Any], frame: Frame) -> tuple[int, int]:
     """Map a model coordinate through a frame's letterbox geometry to the screen.
 
@@ -142,18 +153,18 @@ def _physical_point(coordinate: Sequence[Any], frame: Frame) -> tuple[int, int]:
         or len(coordinate) != 2
         or any(isinstance(value, bool) or not isinstance(value, int) for value in coordinate)
     ):
-        raise ValueError("coordinate harus berupa dua integer.")
+        raise InvalidCoordinateError("coordinate harus berupa dua integer.")
 
     x, y = coordinate
     if not (0 <= x < TARGET_WIDTH and 0 <= y < TARGET_HEIGHT):
-        raise ValueError("coordinate berada di luar ukuran gambar 1024x768.")
+        raise InvalidCoordinateError("coordinate berada di luar ukuran gambar 1024x768.")
 
     geometry = frame.geometry
     if not (
         geometry.offset_x <= x < geometry.offset_x + geometry.content_width
         and geometry.offset_y <= y < geometry.offset_y + geometry.content_height
     ):
-        raise ValueError("coordinate berada di area padding letterbox.")
+        raise InvalidCoordinateError("coordinate berada di area padding letterbox.")
 
     source_x = min(
         geometry.width - 1,
@@ -166,5 +177,5 @@ def _physical_point(coordinate: Sequence[Any], frame: Frame) -> tuple[int, int]:
     physical_x = geometry.left + source_x
     physical_y = geometry.top + source_y
     if 0 <= physical_x <= 5 and 0 <= physical_y <= 5:
-        raise ValueError("coordinate terlalu dekat dengan area emergency stop.")
+        raise InvalidCoordinateError("coordinate terlalu dekat dengan area emergency stop.")
     return physical_x, physical_y

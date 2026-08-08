@@ -142,6 +142,12 @@ class InvalidCoordinateError(ValueError):
     """
 
 
+# Margin (px) for clipping near-boundary coordinates: [1025, N] → [1023, N].
+# Only reasonable imprecision is clipped; wildly out-of-bounds values still
+# raise InvalidCoordinateError and flow into the retry path.
+_COORDINATE_CLIP_MARGIN = 8
+
+
 def _physical_point(coordinate: Sequence[Any], frame: Frame) -> tuple[int, int]:
     """Map a model coordinate through a frame's letterbox geometry to the screen.
 
@@ -157,7 +163,14 @@ def _physical_point(coordinate: Sequence[Any], frame: Frame) -> tuple[int, int]:
 
     x, y = coordinate
     if not (0 <= x < TARGET_WIDTH and 0 <= y < TARGET_HEIGHT):
-        raise InvalidCoordinateError("coordinate berada di luar ukuran gambar 1024x768.")
+        if -_COORDINATE_CLIP_MARGIN <= x < TARGET_WIDTH + _COORDINATE_CLIP_MARGIN:
+            x = max(0, min(x, TARGET_WIDTH - 1))
+        if -_COORDINATE_CLIP_MARGIN <= y < TARGET_HEIGHT + _COORDINATE_CLIP_MARGIN:
+            y = max(0, min(y, TARGET_HEIGHT - 1))
+        if not (0 <= x < TARGET_WIDTH and 0 <= y < TARGET_HEIGHT):
+            raise InvalidCoordinateError(
+                "coordinate berada di luar ukuran gambar 1024x768."
+            )
 
     geometry = frame.geometry
     if not (

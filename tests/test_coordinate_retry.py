@@ -63,10 +63,28 @@ def test_invalid_coordinate_error_is_a_value_error_subclass(capture_region):
         dn_bot._physical_point([2000, 2000], frame)
 
 
+def test_near_boundary_coordinate_is_clipped_not_rejected(capture_region):
+    """A coordinate barely beyond the frame edge (≤ 8 px) is clipped to the
+    nearest valid pixel instead of raising InvalidCoordinateError.
+    [#1,025, #  500] → [1,023,  500]; [-3, 200] → [0, 200]."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    # Just past the right edge: clipped to (1023, 500), identical to [1023, 500].
+    assert dn_bot._physical_point([1025, 500], frame) == dn_bot._physical_point(
+        [1023, 500], frame
+    )
+    # Just before the top edge: clipped to (200, 0), identical to [200, 0].
+    assert dn_bot._physical_point([200, -3], frame) == dn_bot._physical_point(
+        [200, 0], frame
+    )
+    # Still raises for genuinely wild coordinates.
+    with pytest.raises(dn_bot.InvalidCoordinateError, match="luar ukuran"):
+        dn_bot._physical_point([9999, 9999], frame)
+
+
 def test_out_of_bounds_coordinate_is_reported_back_and_corrected(capture_region):
-    """An out-of-bounds coordinate is never executed: the orchestrator sends a
-    tool result with the invalid-coordinate message and re-asks the model on
-    the same frame; the corrected action then runs normally."""
+    """An out-of-bounds coordinate is never executed: the orchestrator captures
+    a fresh frame and sends the invalid-coordinate message as user feedback;
+    the corrected action then runs normally."""
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
     replies = iter(
         [_reply("call-1", _OUT_OF_BOUNDS_CLICK), _reply("call-2", _VALID_WAIT)]
@@ -106,9 +124,10 @@ def test_out_of_bounds_coordinate_is_reported_back_and_corrected(capture_region)
         and "Koordinat tidak valid" in message["content"]
     ]
     assert feedback
-    # The retry reuses the same frame: only the session start and the post-step
-    # refresh captured, never a mid-retry screenshot.
-    assert captures["count"] == 2
+    # The retry captures a fresh frame so the model re-analyses the screen;
+    # together with the step-start capture and the post-action refresh that
+    # totals three captures for a single-step session.
+    assert captures["count"] == 3
     assert not [call for call in device.calls if call[0] in _EXECUTED]
 
 
@@ -241,6 +260,37 @@ def test_coordinate_retry_budget_one_allows_single_retry(capture_region, caplog)
     assert calls["count"] == 2
     assert not [call for call in device.calls if call[0] in _EXECUTED]
     assert "Budget retry koordinat habis (DN_COORDINATE_MAX_RETRIES=1)" in caplog.text
+
+
+def test_coordinate_retry_model_stubbornly_sends_invalid_until_exhausted(
+    capture_region, caplog
+):
+    """With budget=2, a model that keeps sending invalid coordinates gets
+    retried twice, then the session aborts with the budget exhaustion log.
+    All three model calls produce out-of-bounds clicks; none are executed."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    calls = {"count": 0}
+    device = RecordingDevice()
+
+    def _always_bad(*args, **kwargs):
+        calls["count"] += 1
+        return _reply(f"call-{calls['count']}", _OUT_OF_BOUNDS_CLICK)
+
+    with _env(), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator, "_call_openai", side_effect=_always_bad
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(RuntimeError, match="Aksi 'left_click' gagal"):
+            dn_bot.run_dn_bot("go", max_steps=1, device=device)
+
+    assert calls["count"] == 3  # initial + 2 retries
+    assert not [call for call in device.calls if call[0] in _EXECUTED]
+    assert "Budget retry koordinat habis (DN_COORDINATE_MAX_RETRIES=2)" in caplog.text
 
 
 def test_coordinate_retry_answers_all_tool_calls_before_reasking(capture_region):

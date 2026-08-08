@@ -341,9 +341,10 @@ def run_dn_bot(
                             user_text(
                                 f"{result} Coba lagi dengan koordinat yang "
                                 "benar dalam rentang 0-1023 untuk x dan "
-                                "0-767 untuk y. Screenshot yang sama:"
+                                "0-767 untuk y."
                             )
                         )
+                        frame = capture_screen_base64()  # fresh frame for retry
                         messages.append(
                             frame_message(frame.encoded, frame_caption)
                         )

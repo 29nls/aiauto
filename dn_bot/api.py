@@ -222,6 +222,23 @@ def _call_openai(
     ``EmergencyStop``/``FocusLost`` raised there propagate out unchanged so the
     session aborts instead of waiting out the full backoff.
     """
+    # Gemini's OpenAI-compatible endpoint requires `thought_signature` on
+    # every function-call object in the history; without it the API rejects
+    # the request with 400. Inject a synthetic signature on a deep copy so
+    # the caller's messages are never mutated.
+    provider = resolve_provider()
+    if provider == "google":
+        wire_messages = deepcopy(messages)
+        for msg in wire_messages:
+            if msg.get("role") != "assistant":
+                continue
+            for tc in msg.get("tool_calls", []) or []:
+                fn = tc.get("function")
+                if isinstance(fn, dict) and "thought_signature" not in fn:
+                    fn["thought_signature"] = "skip"
+    else:
+        wire_messages = messages
+
     response = None
     for attempt in range(1, API_MAX_ATTEMPTS + 1):
         started = time.monotonic()
@@ -229,7 +246,7 @@ def _call_openai(
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=1024,
-                messages=[{"role": "system", "content": system_prompt}, *messages],
+                messages=[{"role": "system", "content": system_prompt}, *wire_messages],
                 tools=tools or [DRAGON_NEST_TOOL],
                 tool_choice="auto",
             )

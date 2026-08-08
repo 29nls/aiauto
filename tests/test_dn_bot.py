@@ -332,6 +332,26 @@ def test_move_camera_rejects_missing_coordinate(capture_region):
     device.assert_calls([])
 
 
+def test_press_action_key_accepts_enter_and_escape(capture_region):
+    """'enter' and 'escape' are valid ACTION_KEYS for dialog dismissal."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    device = RecordingDevice()
+    with patch.object(dn_bot.input_control, "check_target_window"), patch.object(
+        dn_bot.input_control, "check_emergency_stop"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.execute_game_action(
+            "press_action_key", text="enter", frame=frame, device=device
+        )
+        dn_bot.execute_game_action(
+            "press_action_key", text="escape", frame=frame, device=device
+        )
+
+    device.assert_calls([
+        ("keyDown", ("enter",)), ("keyUp", ("enter",)),
+        ("keyDown", ("escape",)), ("keyUp", ("escape",)),
+    ])
+
+
 @pytest.mark.parametrize("duration", ["slow", float("nan"), float("inf")])
 def test_execute_game_action_rejects_invalid_duration(capture_region, duration):
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})

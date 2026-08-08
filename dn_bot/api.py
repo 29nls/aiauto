@@ -32,9 +32,11 @@ DRAGON_NEST_TOOL = {
         "description": (
                     "Execute one cautious, allow-listed action in the focused Dragon Nest "
                     "window. Coordinates refer to the 1024x768 screenshot. Click actions "
-                    "must include the intended coordinate. For move_camera, coordinate is "
-                    "an absolute endpoint: the cursor is anchored at the screenshot center "
-                    "before moving there. Use only after inspecting the latest screenshot."
+                    "must include the intended coordinate. Prefer keyboard actions when "
+                    "possible: use press_action_key 'enter' for dialog confirmations and "
+                    "'escape' for cancel/close — no coordinate needed. For move_camera, "
+                    "coordinate is an absolute endpoint: the cursor is anchored at the "
+                    "screenshot center before moving there."
         ),
         "parameters": {
             "type": "object",
@@ -114,7 +116,7 @@ Keselamatan:
 
 Aturan aksi:
 - `press_move_key` hanya untuk w/a/s/d/q/e.
-- `press_action_key` hanya untuk f, f12, space, 0-9, atau shift.
+- `press_action_key` hanya untuk f, f12, space, 0-9, shift, enter, atau escape.
 - `mouse_move` memakai coordinate absolut pada screenshot 1024x768.
 - `move_camera` memakai coordinate sebagai endpoint absolut di dalam content game; cursor selalu di-anchor ke titik tengah screenshot terlebih dahulu sehingga gerakan tidak bergantung pada posisi cursor sebelumnya dan tidak mengalami drift.
 - `wait` dipakai untuk loading atau animasi.

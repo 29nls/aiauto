@@ -94,6 +94,8 @@ MOVE_KEYS = {"w", "a", "s", "d", "q", "e"}
 ACTION_KEYS = {
     "f",
     "space",
+    "enter",
+    "escape",
     "1",
     "2",
     "3",

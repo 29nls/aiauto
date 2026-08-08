@@ -99,9 +99,14 @@ def test_every_policy_transition_action_passes_claim_validation(source, target, 
     if source is dn_bot.FarmState.LOOT_RESULT and action == "press_action_key":
         watchdog._loot_result_stabilized = True
 
-    text = "f12" if action == "press_action_key" else None
     if source is dn_bot.FarmState.RETREAT_DIALOG and target is dn_bot.FarmState.RETURN_WAIT:
-        text = "Town"
+        text = "enter" if action == "press_action_key" else "Town"
+    elif source is dn_bot.FarmState.RETREAT_DIALOG and action == "press_action_key":
+        text = "enter"
+    elif action == "press_action_key":
+        text = "f12"
+    else:
+        text = None
     coordinate = [700, 400] if text == "Town" else None
     assert watchdog.validate_claim(
         dn_bot.FarmObservationClaim(target, text=text, coordinate=coordinate),
@@ -196,14 +201,21 @@ def test_retreat_dialog_fails_closed_for_destination_or_coordinate_mismatch(
 
 
 @pytest.mark.parametrize("target", list(dn_bot.MINOTAUR_PHASE_POLICY[dn_bot.FarmState.RETREAT_DIALOG].transitions))
-def test_retreat_dialog_never_accepts_f12(target):
+def test_retreat_dialog_rejects_f12_but_allows_enter(target):
     watchdog = _watchdog_at_retreat_dialog()
 
+    # F12 is still rejected in retreat_dialog
     with pytest.raises(dn_bot.FarmSafetyStop, match="tidak boleh menekan F12"):
         watchdog.validate_claim(
-            dn_bot.FarmObservationClaim(target),
+            dn_bot.FarmObservationClaim(target, text="f12"),
             "press_action_key",
         )
+
+    # enter is now allowed for retreat destination selection
+    watchdog.validate_claim(
+        dn_bot.FarmObservationClaim(target, text="enter"),
+        "press_action_key",
+    )
 
 
 @pytest.mark.parametrize("action", sorted(OFFICIAL_ACTIONS - {"wait"}))
@@ -248,8 +260,9 @@ def test_recovery_matrix_requires_wait_for_safe_exit_and_allows_bounded_f12():
     watchdog.validate_and_advance("pre_dungeon", "wait")
     assert watchdog.state is dn_bot.FarmState.PRE_DUNGEON
 
-    with pytest.raises(dn_bot.FarmSafetyStop):
-        watchdog.validate_claim(
-            dn_bot.FarmObservationClaim(dn_bot.FarmState.PRE_DUNGEON),
-            "press_action_key",
-        )
+    # press_action_key is now allowed in pre_dungeon (e.g. 'f' to interact),
+    # so it no longer raises FarmSafetyStop.
+    watchdog.validate_claim(
+        dn_bot.FarmObservationClaim(dn_bot.FarmState.PRE_DUNGEON, text="f"),
+        "press_action_key",
+    )

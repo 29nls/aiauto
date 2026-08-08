@@ -69,7 +69,9 @@ def test_replay_rejects_invalid_claim_and_action_without_device_calls():
     with pytest.raises(ReplayTraceError, match="state farming"):
         replay_trace(invalid_claim)
 
-    invalid_action = _trace(_step("bad-action", "pre_dungeon", "press_action_key", text="f12"))
+    # press_action_key is now legal in pre_dungeon; use an action that is
+    # still forbidden (right_click is not in pre_dungeon's allowed set).
+    invalid_action = _trace(_step("bad-action", "pre_dungeon", "right_click"))
     with pytest.raises(dn_bot.FarmSafetyStop):
         replay_trace(invalid_action)
 
@@ -531,7 +533,7 @@ def test_replay_policy_matrix_covers_each_phase_with_hand_expected_payloads():
     "name,action,text,coordinate,expected_error",
     [
         pytest.param("illegal-target", "wait", None, None, "Transisi", id="illegal-target"),
-        pytest.param("illegal-action", "press_action_key", "f12", None, "Aksi", id="illegal-action"),
+        pytest.param("illegal-action", "right_click", None, None, "Aksi", id="illegal-action"),
     ],
 )
 def test_replay_policy_matrix_rejects_illegal_action_or_target(
@@ -547,7 +549,7 @@ def test_replay_policy_matrix_rejects_illegal_action_or_target(
     if name == "illegal-target":
         raw = _trace(_step(name, "combat", action, text=text, coordinate=coordinate, before="pre_dungeon", after="pre_dungeon"))
     else:
-        raw = _trace(_step(name, "entering_dungeon", action, text=text, coordinate=coordinate, before="pre_dungeon", after="entering_dungeon"))
+        raw = _trace(_step(name, "pre_dungeon", action, text=text, coordinate=coordinate, before="pre_dungeon", after="pre_dungeon"))
     with pytest.raises(dn_bot.FarmSafetyStop, match=expected_error):
         replay_trace(raw)
     assert executed == []

@@ -78,9 +78,15 @@ MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
     FarmState.PRE_DUNGEON: FarmPhasePolicy(
         actions_by_next_state=MappingProxyType(
             {
-                FarmState.PRE_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
-                FarmState.ENTERING_DUNGEON: frozenset({"left_click", "mouse_move", "wait"}),
-                FarmState.RECOVERY: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.PRE_DUNGEON: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
+                FarmState.ENTERING_DUNGEON: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
+                FarmState.RECOVERY: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
             }
         ),
     ),
@@ -114,9 +120,15 @@ MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
     FarmState.LOOT_CHEST: FarmPhasePolicy(
         actions_by_next_state=MappingProxyType(
             {
-                FarmState.LOOT_CHEST: frozenset({"left_click", "mouse_move", "wait"}),
-                FarmState.LOOT_RESULT: frozenset({"left_click", "mouse_move", "wait"}),
-                FarmState.RECOVERY: frozenset({"left_click", "mouse_move", "wait"}),
+                FarmState.LOOT_CHEST: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
+                FarmState.LOOT_RESULT: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
+                FarmState.RECOVERY: frozenset(
+                    {"left_click", "mouse_move", "press_action_key", "wait"}
+                ),
             }
         ),
     ),
@@ -134,9 +146,11 @@ MINOTAUR_PHASE_POLICY: Mapping[FarmState, FarmPhasePolicy] = MappingProxyType({
     FarmState.RETREAT_DIALOG: FarmPhasePolicy(
         actions_by_next_state=MappingProxyType(
             {
-                FarmState.RETREAT_DIALOG: frozenset({"wait"}),
-                FarmState.RETURN_WAIT: frozenset({"left_click"}),
-                FarmState.RECOVERY: frozenset({"wait"}),
+                FarmState.RETREAT_DIALOG: frozenset({"press_action_key", "wait"}),
+                FarmState.RETURN_WAIT: frozenset(
+                    {"left_click", "press_action_key"}
+                ),
+                FarmState.RECOVERY: frozenset({"press_action_key", "wait"}),
             }
         ),
         click_labels=("town", "stage entrance"),
@@ -284,17 +298,19 @@ MINOTAUR_PROFILE = FarmProfile(
         f"dan hanya wait atau press_action_key {_LOOT_EXIT_KEY}.\n"
         + farm_policy_prompt(MINOTAUR_PHASE_POLICY)
         + "\nState boleh tetap sama. Transisi lain harus dianggap tidak aman.\n"
-        "Pada entering_dungeon, gunakan press_action_key 'enter' untuk "
+        "Pada pre_dungeon, dekati portal lalu gunakan press_action_key 'f' untuk "
+        "interact. Pada entering_dungeon, gunakan press_action_key 'enter' untuk "
         "konfirmasi dialog — jangan klik koordinat tombol. "
         "Setelah boss mati, jangan memilih box atau melakukan review; tunggu sampai "
-        "peti harta di map terlihat jelas. Pada loot_chest, klik hanya peti yang "
-        f"jelas terlihat. Setelah loot result stabil dan {_LOOT_EXIT_KEY.upper()} terlihat, "
+        "peti harta di map terlihat jelas. Pada loot_chest, dekati peti lalu "
+        "gunakan press_action_key 'f' untuk interact — jangan klik koordinat. "
+        f"Setelah loot result stabil dan {_LOOT_EXIT_KEY.upper()} terlihat, "
         f"gunakan press_action_key dengan text {_LOOT_EXIT_KEY} untuk membuka dialog "
         f"{_RETREAT_LABEL_TEXT} dan laporkan retreat_dialog. Pada retreat_dialog, "
-        "klik hanya opsi yang terlihat jelas dan diizinkan konfigurasi operator "
-        f"(label umum: {_RETREAT_LABEL_TEXT}) atau wait; jangan menekan "
-        f"{_LOOT_EXIT_KEY.upper()} lagi. Python menolak label yang tidak cocok "
-        "dengan tujuan operator. "
+        "gunakan press_action_key 'enter' untuk memilih opsi default, atau klik "
+        "opsi yang terlihat jelas dan diizinkan konfigurasi operator "
+        f"(label umum: {_RETREAT_LABEL_TEXT}); jangan menekan "
+        f"{_LOOT_EXIT_KEY.upper()} lagi. "
         "Setelah memilih lokasi, laporkan return_wait dan hanya wait sampai layar "
         "pre_dungeon siap. Jangan menebak koordinat atau melompati dialog.\n"
         "Jika layar ambigu, tidak berubah, fokus hilang, atau aksi aman tidak "
@@ -372,11 +388,15 @@ class FarmWatchdog:
             raise FarmSafetyStop(
                 "Model mengirim action yang kosong atau bukan teks; sesi dihentikan."
             )
+        normalized_text = (
+            " ".join(text.casefold().split()) if isinstance(text, str) else ""
+        )
         if self.state == FarmState.RETREAT_DIALOG and action == "press_action_key":
-            raise FarmSafetyStop(
-                f"Dialog retreat tidak boleh menekan {_LOOT_EXIT_KEY.upper()}; "
-                f"pilih {_RETREAT_LABEL_TEXT}."
-            )
+            if normalized_text == _LOOT_EXIT_KEY:
+                raise FarmSafetyStop(
+                    f"Dialog retreat tidak boleh menekan {_LOOT_EXIT_KEY.upper()}; "
+                    f"pilih {_RETREAT_LABEL_TEXT}."
+                )
         allowed_actions = phase.actions_by_next_state.get(candidate, frozenset())
         if action not in allowed_actions:
             if self.state == FarmState.RECOVERY and candidate == FarmState.PRE_DUNGEON:
@@ -392,9 +412,6 @@ class FarmWatchdog:
             raise FarmSafetyStop(
                 f"Aksi {action!r} tidak diizinkan pada state {self.state.value}."
             )
-        normalized_text = (
-            " ".join(text.casefold().split()) if isinstance(text, str) else ""
-        )
         if phase.required_key and action == "press_action_key":
             if normalized_text != phase.required_key:
                 raise FarmSafetyStop(
@@ -409,6 +426,18 @@ class FarmWatchdog:
                 self.state,
                 FarmState.RECOVERY,
             }:
+                return candidate
+            if action == "press_action_key" and normalized_text == "enter":
+                # Enter selects the first/highlighted option. Only allow it
+                # when the operator hasn't constrained the destination, or
+                # when the destination matches the expected default (town).
+                if self.retreat_destination is not None and self.retreat_destination != "town":
+                    raise FarmSafetyStop(
+                        "Enter memilih opsi default (Town); "
+                        f"konfigurasi operator mengharuskan "
+                        f"{self.retreat_destination.replace('_', ' ')}. "
+                        "Gunakan left_click dengan label yang sesuai."
+                    )
                 return candidate
             if action == "left_click" and candidate == FarmState.RETURN_WAIT:
                 if (

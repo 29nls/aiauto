@@ -12,13 +12,17 @@ sleep helpers are patched), so an invalid action provably never reaches the
 input device.
 """
 
+import json
 import os
+import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
 
 import dn_bot
 from conftest import RecordingDevice
+from dn_bot.replay import load_replay_trace, replay_trace
 
 
 def _reply(request_id, tool_input):
@@ -333,3 +337,115 @@ def test_farm_coordinate_retry_keeps_watchdog_state_until_valid_action(
     # The failed left_click must not advance the state; only the corrected
     # same-state wait runs, so the watchdog stays in PRE_DUNGEON.
     assert watchdogs[0].state is dn_bot.FarmState.PRE_DUNGEON
+
+
+def test_record_replay_roundtrip_with_missing_coordinate_retry(tmp_path, capture_region):
+    """Regression guard: a session that retried a missing-coordinate action
+    records a replayable JSON v1 trace containing ONLY the corrected valid
+    step, and that artifact replays successfully both in-process and through
+    the ``python -m dn_bot replay`` CLI subprocess — with the expected final
+    state, step count, and device calls. Expectations are hand-authored, and
+    no game window, screenshot, network, or credentials are involved."""
+    path = tmp_path / "trace.json"
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    replies = iter(
+        [
+            # Attempt 1: a click with NO coordinate — retried, never executed.
+            _reply(
+                "call-1",
+                {"action": "left_click", "farm_state": "entering_dungeon"},
+            ),
+            # Attempt 2: the corrected action that actually runs and records.
+            _reply(
+                "call-2",
+                {
+                    "action": "left_click",
+                    "farm_state": "entering_dungeon",
+                    "coordinate": [512, 384],
+                },
+            ),
+        ]
+    )
+    requests = []
+    device = RecordingDevice()
+    with _env(), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openai",
+        side_effect=lambda *args, **kwargs: (
+            requests.append(args[2]),
+            next(replies),
+        )[1],
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.run_dn_bot(
+            "farm minotaur",
+            max_steps=1,
+            farm_profile=dn_bot.MINOTAUR_PROFILE,
+            device=device,
+            record_trace_path=path,
+        )
+
+    # The missing-coordinate attempt was reported back to the model (one
+    # retry), never executed, and never recorded.
+    assert len(requests) == 2
+    feedback = [
+        message
+        for message in requests[1]
+        if message.get("role") == "tool" and message.get("tool_call_id") == "call-1"
+    ]
+    assert feedback and feedback[0]["content"].startswith("Koordinat tidak valid")
+    assert "membutuhkan coordinate" in feedback[0]["content"]
+    # Only the corrected action reached the device, exactly once: the failed
+    # attempt contributed zero primitives.
+    assert [call for call in device.calls if call[0] in _EXECUTED] == [
+        ("moveTo", (512, 384)),
+        ("click", ()),
+    ]
+
+    # Emitted trace: exactly one valid, secret-free step with hand-authored
+    # expectations (the failed attempt is absent).
+    wire = json.loads(path.read_text(encoding="utf-8"))
+    assert wire["version"] == 1
+    assert wire["profile"] == "minotaur"
+    steps = wire["steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["frame_id"] == "frame_000001"
+    assert "text" not in step["claim"] and "text" not in step["action"]
+    assert step["claim"]["farm_state"] == "entering_dungeon"
+    assert step["claim"]["coordinate"] == [512, 384]
+    assert step["action"]["action"] == "left_click"
+    assert step["action"]["coordinate"] == [512, 384]
+    assert step["expected"]["state_before"] == "pre_dungeon"
+    assert step["expected"]["state_after"] == "entering_dungeon"
+    assert step["expected"]["result"] == "success"
+    assert step["expected"]["device_calls"] == [
+        {"method": "moveTo", "args": [512, 384]},
+        {"method": "click", "args": []},
+    ]
+
+    # In-process replay through the real offline machinery (JSON v1 parser,
+    # FarmWatchdog, ReplayDevice, execute_game_action).
+    report = replay_trace(load_replay_trace(path))
+    assert report.steps_replayed == 1
+    assert report.final_state is dn_bot.FarmState.ENTERING_DUNGEON
+    assert report.device_calls == (("moveTo", (512, 384)), ("click", ()))
+
+    # Replay through the shipped CLI subprocess, fully offline.
+    result = subprocess.run(
+        [sys.executable, "-m", "dn_bot", "replay", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Replay berhasil" in result.stdout
+    assert "final_state=entering_dungeon" in result.stdout
+    assert "steps=1" in result.stdout
+    assert "device_calls=2" in result.stdout
+    assert result.stderr == ""

@@ -284,6 +284,8 @@ MINOTAUR_PROFILE = FarmProfile(
         f"dan hanya wait atau press_action_key {_LOOT_EXIT_KEY}.\n"
         + farm_policy_prompt(MINOTAUR_PHASE_POLICY)
         + "\nState boleh tetap sama. Transisi lain harus dianggap tidak aman.\n"
+        "Pada entering_dungeon, gunakan press_action_key 'enter' untuk "
+        "konfirmasi dialog — jangan klik koordinat tombol. "
         "Setelah boss mati, jangan memilih box atau melakukan review; tunggu sampai "
         "peti harta di map terlihat jelas. Pada loot_chest, klik hanya peti yang "
         f"jelas terlihat. Setelah loot result stabil dan {_LOOT_EXIT_KEY.upper()} terlihat, "

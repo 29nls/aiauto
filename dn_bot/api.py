@@ -11,11 +11,13 @@ from typing import Any
 from openai import OpenAI
 
 from .config import (
+    ACTION_KEYS,
     API_ERROR_DETAIL_MAX,
     API_MAX_ATTEMPTS,
     API_RETRY_BASE_DELAY,
     EmergencyStop,
     FocusLost,
+    MOVE_KEYS,
     _request_timeout,
     log,
     resolve_base_url,
@@ -64,7 +66,10 @@ DRAGON_NEST_TOOL = {
                     "minItems": 2,
                     "maxItems": 2,
                 },
-                "text": {"type": "string"},
+                "text": {
+                    "type": "string",
+                    "enum": sorted(MOVE_KEYS | ACTION_KEYS),
+                },
                 "duration": {"type": "number", "minimum": 0.05, "maximum": 2.0},
             },
             "required": ["action"],

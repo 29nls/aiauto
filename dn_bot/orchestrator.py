@@ -337,11 +337,14 @@ def run_dn_bot(
                         # plain user message carrying the same feedback so
                         # the retry call has zero function-call history.
                         messages.pop()
+                        g = frame.geometry
                         messages.append(
                             user_text(
                                 f"{result} Coba lagi dengan koordinat yang "
-                                "benar dalam rentang 0-1023 untuk x dan "
-                                "0-767 untuk y."
+                                f"benar dalam rentang {g.offset_x}-"
+                                f"{g.offset_x + g.content_width - 1} untuk x "
+                                f"dan {g.offset_y}-"
+                                f"{g.offset_y + g.content_height - 1} untuk y."
                             )
                         )
                         frame = capture_screen_base64()  # fresh frame for retry

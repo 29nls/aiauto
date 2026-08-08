@@ -176,10 +176,10 @@ def test_coordinate_retry_exhaustion_aborts_without_executing(capture_region):
     assert not [call for call in device.calls if call[0] in _EXECUTED]
 
 
-def test_coordinate_retry_budget_zero_aborts_immediately(capture_region):
+def test_coordinate_retry_budget_zero_aborts_immediately(capture_region, caplog):
     """DN_COORDINATE_MAX_RETRIES=0 disables retries: an invalid coordinate
     aborts the session fail closed after exactly one model call, still without
-    executing anything."""
+    executing anything. The log surfaces the exhausted budget before aborting."""
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
     calls = {"count": 0}
     device = RecordingDevice()
@@ -204,12 +204,13 @@ def test_coordinate_retry_budget_zero_aborts_immediately(capture_region):
 
     assert calls["count"] == 1
     assert not [call for call in device.calls if call[0] in _EXECUTED]
+    assert "Budget retry koordinat habis (DN_COORDINATE_MAX_RETRIES=0)" in caplog.text
 
 
-def test_coordinate_retry_budget_one_allows_single_retry(capture_region):
+def test_coordinate_retry_budget_one_allows_single_retry(capture_region, caplog):
     """DN_COORDINATE_MAX_RETRIES=1 allows exactly one re-ask: two model calls
     in total before the session aborts fail closed, still without executing
-    anything."""
+    anything. The log surfaces the exhausted budget after the retry fails."""
     frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
     calls = {"count": 0}
     device = RecordingDevice()
@@ -234,6 +235,7 @@ def test_coordinate_retry_budget_one_allows_single_retry(capture_region):
 
     assert calls["count"] == 2
     assert not [call for call in device.calls if call[0] in _EXECUTED]
+    assert "Budget retry koordinat habis (DN_COORDINATE_MAX_RETRIES=1)" in caplog.text
 
 
 def test_coordinate_retry_answers_all_tool_calls_before_reasking(capture_region):

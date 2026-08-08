@@ -343,6 +343,11 @@ def run_dn_bot(
                         # Coordinate validation failures never reach the device;
                         # they must not become misleading device_failure entries.
                         raise
+                    log.error(
+                        "Budget retry koordinat habis "
+                        "(DN_COORDINATE_MAX_RETRIES=%s); sesi dihentikan.",
+                        coordinate_retry_budget,
+                    )
                     _abort_action(action, error)
                 except Exception as error:
                     if recorder is not None and not active_device.action_failed:

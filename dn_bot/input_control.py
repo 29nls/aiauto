@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Optional, Sequence, Any
 
-from .capture import Frame, _physical_point
+from .capture import Frame, InvalidCoordinateError, _physical_point
 from .config import (
     ACTION_COOLDOWN,
     ACTION_KEYS,
@@ -64,11 +64,11 @@ def execute_game_action(
 
     if action == "mouse_move":
         if coordinate is None:
-            raise ValueError("mouse_move membutuhkan coordinate.")
+            raise InvalidCoordinateError("mouse_move membutuhkan coordinate.")
         device.moveTo(*_physical_point(coordinate, frame))
     elif action in {"left_click", "right_click"}:
         if coordinate is None:
-            raise ValueError(f"{action} membutuhkan coordinate.")
+            raise InvalidCoordinateError(f"{action} membutuhkan coordinate.")
         device.moveTo(*_physical_point(coordinate, frame))
         if action == "left_click":
             device.click()
@@ -80,7 +80,7 @@ def execute_game_action(
         _press_key(_validate_key(text, ACTION_KEYS), min(duration, 1.0), device)
     elif action == "move_camera":
         if coordinate is None:
-            raise ValueError("move_camera membutuhkan coordinate.")
+            raise InvalidCoordinateError("move_camera membutuhkan coordinate.")
         target_x, target_y = _physical_point(coordinate, frame)
         center_x, center_y = _physical_point((TARGET_WIDTH // 2, TARGET_HEIGHT // 2), frame)
         # Anchor every camera move at the screenshot center so the action does

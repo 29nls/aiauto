@@ -99,6 +99,46 @@ def test_out_of_bounds_coordinate_is_reported_back_and_corrected(capture_region)
     assert not [call for call in device.calls if call[0] in _EXECUTED]
 
 
+def test_missing_coordinate_is_reported_back_and_corrected(capture_region):
+    """A click action with no coordinate at all is the same family of model
+    mistake: it is never executed, gets the same feedback tool result, and the
+    model is re-asked for a corrected action."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    replies = iter(
+        [
+            _reply("call-1", {"action": "left_click"}),
+            _reply("call-2", _VALID_WAIT),
+        ]
+    )
+    requests = []
+    device = RecordingDevice()
+    with _env(), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator,
+        "_call_openai",
+        side_effect=lambda *args, **kwargs: (
+            requests.append(args[2]),
+            next(replies),
+        )[1],
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        dn_bot.run_dn_bot("go", max_steps=1, device=device)
+
+    assert len(requests) == 2
+    feedback = [
+        message
+        for message in requests[1]
+        if message.get("role") == "tool" and message.get("tool_call_id") == "call-1"
+    ]
+    assert feedback and feedback[0]["content"].startswith("Koordinat tidak valid")
+    assert "membutuhkan coordinate" in feedback[0]["content"]
+    assert not [call for call in device.calls if call[0] in _EXECUTED]
+
+
 def test_coordinate_retry_exhaustion_aborts_without_executing(capture_region):
     """Exhausting the per-step retry budget aborts the session fail closed and
     the invalid action is never executed."""

@@ -134,11 +134,11 @@ def capture_screen_base64() -> Frame:
 class InvalidCoordinateError(ValueError):
     """A model-supplied coordinate that cannot be safely mapped to the screen.
 
-    Raised for malformed coordinates, coordinates outside the 1024x768 model
-    frame, coordinates inside the letterbox padding, and coordinates that map
-    onto the failsafe corner. The orchestrator treats it as a retryable model
-    error: the action is never executed, the failure is reported back to the
-    model, and the model is asked for a corrected coordinate.
+    Raised for a missing or malformed coordinate, coordinates outside the
+    1024x768 model frame, coordinates inside the letterbox padding, and
+    coordinates that map onto the failsafe corner. The orchestrator treats it
+    as a retryable model error: the action is never executed, the failure is
+    reported back to the model, and the model is asked for a corrected action.
     """
 
 

@@ -37,12 +37,29 @@ from .messages import (
 )
 from .safety import _sanitize_log_text, check_emergency_stop
 
-# The model may propose an action whose coordinate fails validation (outside
-# the 1024x768 frame, in the letterbox padding, or mapping onto the failsafe
-# corner). Such an action is never executed; the orchestrator reports the
-# failure back to the model as a tool result and re-asks for a corrected
-# action, up to this many times per step, before aborting fail closed.
+# The model may propose an action whose coordinate cannot be used: it is
+# missing, malformed, outside the 1024x768 frame, inside the letterbox
+# padding, or maps onto the failsafe corner. Such an action is never executed;
+# the orchestrator reports the failure back to the model as a tool result and
+# re-asks for a corrected action, up to this many times per step, before
+# aborting fail closed.
 MAX_COORDINATE_RETRIES = 2
+
+# Sent for every tool call beyond the first in a single model reply.
+_EXTRA_ACTION_REJECTION = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
+
+
+def _abort_action(action, error: Exception) -> None:
+    """Log and surface a fail-closed action failure.
+
+    Shared by every action error path: the session stops with no further
+    action. ``action`` is untrusted model input, so it is sanitized before
+    entering the error message (pattern F-05, no terminal log injection).
+    """
+    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
+    raise RuntimeError(
+        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
+    ) from error
 
 
 def _compact_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -187,11 +204,12 @@ def run_dn_bot(
         log.info("Langkah %s/%s (session=%s)", step, step_limit, session_id)
         messages = _compact_messages(messages)
 
-        # A model reply whose action fails coordinate validation (out of bounds,
-        # letterbox padding, or the failsafe corner) is never executed. The
-        # failure is reported back to the model as a tool result and the model
-        # is re-asked for a corrected action on the same frame, with a bounded
-        # retry budget per step. Any other action failure aborts fail closed.
+        # A model reply whose action fails coordinate validation (missing,
+        # malformed, out of bounds, letterbox padding, or the failsafe corner)
+        # is never executed. The failure is reported back to the model as a
+        # tool result and the model is re-asked for a corrected action on the
+        # same frame, with a bounded retry budget per step. Any other action
+        # failure aborts fail closed.
         coordinate_retries = MAX_COORDINATE_RETRIES
         while True:
             try:
@@ -256,7 +274,7 @@ def run_dn_bot(
             retry = False
             for index, request in enumerate(reply.tool_requests):
                 if index > 0:
-                    result = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
+                    result = _EXTRA_ACTION_REJECTION
                     log.warning(result)
                     messages.append(tool_result(request.id, result))
                     continue
@@ -310,11 +328,7 @@ def run_dn_bot(
                         # needs a tool result before the model is re-asked.
                         for extra in reply.tool_requests[index + 1 :]:
                             messages.append(
-                                tool_result(
-                                    extra.id,
-                                    "Aksi ditolak: hanya satu aksi per screenshot "
-                                    "yang diizinkan.",
-                                )
+                                tool_result(extra.id, _EXTRA_ACTION_REJECTION)
                             )
                         retry = True
                         break
@@ -322,12 +336,7 @@ def run_dn_bot(
                         # Coordinate validation failures never reach the device;
                         # they must not become misleading device_failure entries.
                         raise
-                    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
-                    # `action` adalah input model (tak tepercaya): sanitasi
-                    # sebelum masuk pesan error (pola F-05).
-                    raise RuntimeError(
-                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
-                    ) from error
+                    _abort_action(action, error)
                 except Exception as error:
                     if recorder is not None and not active_device.action_failed:
                         # Validation and other non-device failures must not
@@ -347,13 +356,7 @@ def run_dn_bot(
                         # original session error; API and policy failures never
                         # flush.
                         recorder.flush()
-                    log.exception("Aksi gagal; sesi dihentikan tanpa aksi tambahan.")
-                    # `action` adalah input model (tak tepercaya): sanitasi
-                    # sebelum masuk pesan error agar tidak terjadi log injection
-                    # (pola F-05).
-                    raise RuntimeError(
-                        f"Aksi {_sanitize_log_text(str(action))!r} gagal: {error}"
-                    ) from error
+                    _abort_action(action, error)
 
                 messages.append(tool_result(request.id, result))
 

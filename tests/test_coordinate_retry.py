@@ -41,9 +41,15 @@ _EXECUTED = ("moveTo", "click", "rightClick")
 
 
 def _env():
+    # The retry budget is pinned to the default so the assertions below stay
+    # deterministic even if an operator sets DN_COORDINATE_MAX_RETRIES locally.
     return patch.dict(
         os.environ,
-        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test/free"},
+        {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_MODEL": "test/free",
+            "DN_COORDINATE_MAX_RETRIES": "2",
+        },
         clear=False,
     )
 
@@ -167,6 +173,66 @@ def test_coordinate_retry_exhaustion_aborts_without_executing(capture_region):
             dn_bot.run_dn_bot("go", max_steps=1, device=device)
 
     assert calls["count"] == dn_bot.orchestrator.MAX_COORDINATE_RETRIES + 1
+    assert not [call for call in device.calls if call[0] in _EXECUTED]
+
+
+def test_coordinate_retry_budget_zero_aborts_immediately(capture_region):
+    """DN_COORDINATE_MAX_RETRIES=0 disables retries: an invalid coordinate
+    aborts the session fail closed after exactly one model call, still without
+    executing anything."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    calls = {"count": 0}
+    device = RecordingDevice()
+
+    def _reply_bad(*args, **kwargs):
+        calls["count"] += 1
+        return _reply(f"call-{calls['count']}", _OUT_OF_BOUNDS_CLICK)
+
+    with _env(), patch.dict(
+        os.environ, {"DN_COORDINATE_MAX_RETRIES": "0"}, clear=False
+    ), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator, "_call_openai", side_effect=_reply_bad
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(RuntimeError, match="Aksi 'left_click' gagal"):
+            dn_bot.run_dn_bot("go", max_steps=1, device=device)
+
+    assert calls["count"] == 1
+    assert not [call for call in device.calls if call[0] in _EXECUTED]
+
+
+def test_coordinate_retry_budget_one_allows_single_retry(capture_region):
+    """DN_COORDINATE_MAX_RETRIES=1 allows exactly one re-ask: two model calls
+    in total before the session aborts fail closed, still without executing
+    anything."""
+    frame = capture_region({"left": 0, "top": 0, "width": 1024, "height": 768})
+    calls = {"count": 0}
+    device = RecordingDevice()
+
+    def _reply_bad(*args, **kwargs):
+        calls["count"] += 1
+        return _reply(f"call-{calls['count']}", _OUT_OF_BOUNDS_CLICK)
+
+    with _env(), patch.dict(
+        os.environ, {"DN_COORDINATE_MAX_RETRIES": "1"}, clear=False
+    ), patch.object(
+        dn_bot.orchestrator, "get_openai_client"
+    ), patch.object(
+        dn_bot.orchestrator, "capture_screen_base64", return_value=frame
+    ), patch.object(
+        dn_bot.orchestrator, "_call_openai", side_effect=_reply_bad
+    ), patch.object(dn_bot.orchestrator, "check_emergency_stop"), patch.object(
+        dn_bot.input_control, "check_target_window"
+    ), patch.object(dn_bot.input_control, "_safe_sleep"):
+        with pytest.raises(RuntimeError, match="Aksi 'left_click' gagal"):
+            dn_bot.run_dn_bot("go", max_steps=1, device=device)
+
+    assert calls["count"] == 2
     assert not [call for call in device.calls if call[0] in _EXECUTED]
 
 

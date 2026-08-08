@@ -748,6 +748,37 @@ def test_int_env_returns_none_when_unset_and_no_default():
         assert dn_bot._int_env("DN_CAPTURE_LEFT") is None
 
 
+def test_resolve_coordinate_max_retries_defaults_to_two():
+    with patch.dict(os.environ, {}, clear=True):
+        assert dn_bot.resolve_coordinate_max_retries() == 2
+
+
+@pytest.mark.parametrize("raw,expected", [("0", 0), ("1", 1), ("5", 5), ("10", 10)])
+def test_resolve_coordinate_max_retries_accepts_valid_values(raw, expected):
+    with patch.dict(
+        os.environ, {dn_bot.COORDINATE_MAX_RETRIES_ENV: raw}, clear=False
+    ):
+        assert dn_bot.resolve_coordinate_max_retries() == expected
+
+
+@pytest.mark.parametrize("raw", ["abc", "2.5", ""])
+def test_resolve_coordinate_max_retries_rejects_non_integer(raw):
+    with patch.dict(
+        os.environ, {dn_bot.COORDINATE_MAX_RETRIES_ENV: raw}, clear=False
+    ):
+        with pytest.raises(ValueError, match="DN_COORDINATE_MAX_RETRIES"):
+            dn_bot.resolve_coordinate_max_retries()
+
+
+@pytest.mark.parametrize("raw", ["-1", "11", "100"])
+def test_resolve_coordinate_max_retries_rejects_out_of_range(raw):
+    with patch.dict(
+        os.environ, {dn_bot.COORDINATE_MAX_RETRIES_ENV: raw}, clear=False
+    ):
+        with pytest.raises(ValueError, match="antara 0 dan"):
+            dn_bot.resolve_coordinate_max_retries()
+
+
 def test_image_block_builds_openai_image_url_data_uri():
     block = dn_bot.image_block("abc123")
 
@@ -1337,6 +1368,39 @@ def test_preflight_rejects_partial_capture_rect():
             assert "DN_CAPTURE_LEFT/TOP/WIDTH/HEIGHT" in str(error)
         else:
             raise AssertionError("Partial capture rect must be rejected")
+
+
+def test_preflight_rejects_non_integer_coordinate_retries():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            dn_bot.COORDINATE_MAX_RETRIES_ENV: "banyak",
+        },
+        clear=True,
+    ):
+        try:
+            dn_bot.preflight_configuration()
+        except ValueError as error:
+            assert "DN_COORDINATE_MAX_RETRIES" in str(error)
+        else:
+            raise AssertionError("Non-integer retry budget must be rejected")
+
+
+def test_preflight_accepts_valid_coordinate_retries():
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_API_KEY": _VALID_API_KEY,
+            "OPENAI_MODEL": "test/free",
+            "DN_WINDOW_TITLE": "Dragon Nest",
+            dn_bot.COORDINATE_MAX_RETRIES_ENV: "5",
+        },
+        clear=True,
+    ):
+        dn_bot.preflight_configuration()
 
 
 def test_preflight_rejects_non_integer_capture_value():

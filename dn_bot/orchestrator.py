@@ -11,12 +11,14 @@ from typing import Any
 from .api import MINOTAUR_TOOL, SYSTEM_PROMPT, _call_openai, get_openai_client
 from .capture import InvalidCoordinateError, capture_screen_base64
 from .config import (
+    COORDINATE_MAX_RETRIES_DEFAULT,
     MAX_CONTEXT_MESSAGES,
     MAX_STEPS_PER_SESSION,
     MOVE_DURATION,
     EmergencyStop,
     FocusLost,
     log,
+    resolve_coordinate_max_retries,
 )
 from .device import DeviceInput, PyDirectInputDevice
 from .farm import (
@@ -42,8 +44,9 @@ from .safety import _sanitize_log_text, check_emergency_stop
 # padding, or maps onto the failsafe corner. Such an action is never executed;
 # the orchestrator reports the failure back to the model as a tool result and
 # re-asks for a corrected action, up to this many times per step, before
-# aborting fail closed.
-MAX_COORDINATE_RETRIES = 2
+# aborting fail closed. The budget defaults to 2; an operator can override it
+# per session via the DN_COORDINATE_MAX_RETRIES env var (validated in preflight).
+MAX_COORDINATE_RETRIES = COORDINATE_MAX_RETRIES_DEFAULT
 
 # Sent for every tool call beyond the first in a single model reply.
 _EXTRA_ACTION_REJECTION = "Aksi ditolak: hanya satu aksi per screenshot yang diizinkan."
@@ -149,6 +152,9 @@ def run_dn_bot(
             "mendukung vision dan tool calling."
         )
 
+    # Resolved once per session: the env var cannot change mid-process, and a
+    # malformed value fails fast here (and during preflight) with a clear error.
+    coordinate_retry_budget = resolve_coordinate_max_retries()
     session_id = _new_session_id()
     recorder = (
         TraceRecorder(record_trace_path, retreat_destination=retreat_destination)
@@ -208,9 +214,10 @@ def run_dn_bot(
         # malformed, out of bounds, letterbox padding, or the failsafe corner)
         # is never executed. The failure is reported back to the model as a
         # tool result and the model is re-asked for a corrected action on the
-        # same frame, with a bounded retry budget per step. Any other action
-        # failure aborts fail closed.
-        coordinate_retries = MAX_COORDINATE_RETRIES
+        # same frame, with a bounded retry budget per step (default
+        # MAX_COORDINATE_RETRIES, overridable via DN_COORDINATE_MAX_RETRIES).
+        # Any other action failure aborts fail closed.
+        coordinate_retries = coordinate_retry_budget
         while True:
             try:
                 if system_prompt is None:

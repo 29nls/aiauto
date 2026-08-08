@@ -216,6 +216,7 @@ JPEG 1024x768 ──► Provider vision model
 - SDK OpenAI dipakai hanya sebagai client untuk provider yang kompatibel; endpoint ditentukan oleh `DN_PROVIDER`.
 - Model hanya dapat memanggil function `dragon_nest_action` dengan action yang di-allowlist.
 - Tombol, koordinat, dan durasi divalidasi sebelum input dikirim.
+- Aksi dengan koordinat tidak valid (hilang, malformed, di luar gambar, area padding, atau pojok failsafe) **tidak pernah dieksekusi**: kegagalan dilaporkan balik ke model dan model diminta aksi koreksi pada frame yang sama, maks `DN_COORDINATE_MAX_RETRIES` per langkah (default `2`; `0` = langsung berhenti; divalidasi saat preflight).
 - `move_camera` memakai endpoint absolut yang divalidasi, lalu menggerakkan cursor dari titik tengah ke endpoint tersebut; posisi cursor sebelumnya tidak memengaruhi hasil dan aksi berulang tidak mengakumulasi drift.
 - Input fisik dilewatkan lewat seam `DeviceInput` (`dn_bot/device.py`): adapter `pydirectinput` di produksi, recorder in-memory di tes, dan `DryRunDevice` untuk mode latihan `--dry-run` (meng-log aksi yang dimaksud tanpa mengeksekusinya).
 - Setelah aksi, screenshot baru dikirim sebagai pesan user berikutnya dan menggantikan frame lama sebagai sumber visual yang authoritative.

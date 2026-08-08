@@ -68,6 +68,12 @@ API_ERROR_DETAIL_MAX = 500
 # Bounded so a hung request cannot hold the session for the SDK default (~600 s)
 # times API_MAX_ATTEMPTS without any emergency responsiveness in between.
 OPENAI_TIMEOUT_DEFAULT = 60
+# Optional per-step retry budget for invalid model coordinates. Unset keeps the
+# legacy default of 2 re-asks; 0 disables retries (any invalid coordinate
+# aborts fail closed at once). Validated during preflight.
+COORDINATE_MAX_RETRIES_ENV = "DN_COORDINATE_MAX_RETRIES"
+COORDINATE_MAX_RETRIES_DEFAULT = 2
+COORDINATE_MAX_RETRIES_MAX = 10
 # Default session goal, used when neither the CLI flag (--instruction) nor the
 # DN_INSTRUCTION env var is provided. Byte-identical to the pre-T3 hardcoded
 # text so no-args behavior is unchanged.
@@ -289,6 +295,28 @@ def _request_timeout() -> int:
     return timeout
 
 
+def resolve_coordinate_max_retries() -> int:
+    """Resolve the per-step coordinate retry budget (env DN_COORDINATE_MAX_RETRIES).
+
+    Defaults to ``COORDINATE_MAX_RETRIES_DEFAULT`` (2) when unset, so the
+    default behavior is unchanged; 0 disables retries entirely. Non-integer
+    values fail fast with the ``_int_env`` message; out-of-range values get a
+    clear range message.
+
+    Raises:
+        ValueError: If the configured value is not an integer in [0, 10].
+    """
+    parsed = _int_env(COORDINATE_MAX_RETRIES_ENV)
+    if parsed is None:
+        return COORDINATE_MAX_RETRIES_DEFAULT
+    if not 0 <= parsed <= COORDINATE_MAX_RETRIES_MAX:
+        raise ValueError(
+            f"{COORDINATE_MAX_RETRIES_ENV} harus berupa bilangan bulat antara "
+            f"0 dan {COORDINATE_MAX_RETRIES_MAX}."
+        )
+    return parsed
+
+
 def _validate_capture_env() -> None:
     """Validate capture-related env vars without touching the screen.
 
@@ -365,6 +393,7 @@ def preflight_configuration(retreat_destination: object = _UNSET) -> None:
             "aplikasi lain."
         )
     _validate_capture_env()
+    resolve_coordinate_max_retries()
     if retreat_destination is _UNSET:
         validate_retreat_destination(os.getenv(RETREAT_DESTINATION_ENV))
     else:
